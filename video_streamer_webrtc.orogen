@@ -1,0 +1,13 @@
+name "video_streamer_webrtc"
+
+import_types_from "base"
+
+task_context "StreamerTask" do
+    needs_configuration
+
+    # The images to stream
+    input_port "images", ro_ptr("/base/samples/frame/Frame")
+
+    port_driven
+end
+

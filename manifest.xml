@@ -1,0 +1,15 @@
+<package>
+  <description brief="Streaming to web browsers using WebRTC">
+  
+  </description>
+  <author>Sylvain Joyeux/sylvain.joyeux@13robotics.com</author>
+  <license></license>
+  <url>http://</url>
+  <logo>http://</logo>
+
+  <depend package="base/cmake" />
+  <depend package="base/orogen/types" />
+  <depend package="soup" />
+  <depend package="json-glib" />
+  <depend package="gstreamer-webrtc" />
+</package>
