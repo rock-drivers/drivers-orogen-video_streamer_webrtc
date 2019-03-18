@@ -4,6 +4,12 @@
 #define VIDEO_STREAMER_WEBRTC_STREAMERTASK_TASK_HPP
 
 #include "video_streamer_webrtc/StreamerTaskBase.hpp"
+#include <libsoup/soup-types.h>
+
+struct _GMainLoop;
+typedef struct _GMainLoop GMainLoop;
+struct _GHashTable;
+typedef struct _GHashTable GHashTable;
 
 namespace video_streamer_webrtc{
 
@@ -11,7 +17,7 @@ namespace video_streamer_webrtc{
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
      * Essential interfaces are operations, data flow ports and properties. These interfaces have been defined using the oroGen specification.
      * In order to modify the interfaces you should (re)use oroGen and rely on the associated workflow.
-     * 
+     *
      * \details
      * The name of a TaskContext is primarily defined via:
      \verbatim
@@ -38,7 +44,7 @@ namespace video_streamer_webrtc{
         /** TaskContext constructor for StreamerTask
          * \param name Name of the task. This name needs to be unique to make it identifiable for nameservices.
          * \param engine The RTT Execution engine to be used for this task, which serialises the execution of all commands, programs, state machines and incoming events for a task.
-         * 
+         *
          */
         StreamerTask(std::string const& name, RTT::ExecutionEngine* engine);
 
@@ -85,6 +91,8 @@ namespace video_streamer_webrtc{
          */
         void updateHook();
 
+        bool breakUpdateHook();
+
         /** This hook is called by Orocos when the component is in the
          * RunTimeError state, at each activity step. See the discussion in
          * updateHook() about triggering options.
@@ -103,6 +111,15 @@ namespace video_streamer_webrtc{
          * before calling start() again.
          */
         void cleanupHook();
+
+    private:
+        void init();
+
+        int argc = 0;
+        const char* argv[1] = { "webrtc-streamer "};
+        GMainLoop *mainloop = nullptr;
+        SoupServer *soup_server = nullptr;
+        GHashTable *receiver_entry_table = nullptr;
     };
 }
 

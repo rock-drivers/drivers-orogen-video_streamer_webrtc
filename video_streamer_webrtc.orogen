@@ -1,13 +1,18 @@
-name "video_streamer_webrtc"
+name 'video_streamer_webrtc'
 
-import_types_from "base"
+using_library 'gstreamer-webrtc-1.0', typekit: false
+using_library 'libsoup-2.4', typekit: false
+using_library 'json-glib-1.0', typekit: false
+import_types_from 'base'
 
-task_context "StreamerTask" do
+task_context 'StreamerTask' do
     needs_configuration
 
+    # The port on which the embedded server is listening
+    property 'port', 'int', 57_778
+
     # The images to stream
-    input_port "images", ro_ptr("/base/samples/frame/Frame")
+    input_port 'images', ro_ptr('/base/samples/frame/Frame')
 
     port_driven
 end
-
