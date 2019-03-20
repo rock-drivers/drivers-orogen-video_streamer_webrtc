@@ -5,6 +5,8 @@
 
 #include "video_streamer_webrtc/StreamerTaskBase.hpp"
 #include <libsoup/soup-types.h>
+#include <base/samples/Frame.hpp>
+#include <gst/gstelement.h>
 
 struct _GMainLoop;
 typedef struct _GMainLoop GMainLoop;
@@ -12,6 +14,7 @@ struct _GHashTable;
 typedef struct _GHashTable GHashTable;
 
 namespace video_streamer_webrtc{
+    struct Receiver;
 
     /*! \class StreamerTask
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -32,9 +35,8 @@ namespace video_streamer_webrtc{
 	friend class StreamerTaskBase;
     protected:
 
-
-
     public:
+
         /** TaskContext constructor for StreamerTask
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
@@ -112,16 +114,33 @@ namespace video_streamer_webrtc{
          */
         void cleanupHook();
 
+        void registerReceiver(Receiver* entry);
+        void deregisterReceiver(SoupWebsocketConnection* connection);
+        bool pushFrame(GstElement* element);
+
+        int getImageWidth() const;
+        int getImageHeight() const;
+        base::samples::frame::frame_mode_t getImageMode() const;
+        void waitFirstFrame();
+        bool hasFirstFrame() const;
+
     private:
         void init();
+        bool hasFrame = false;
+        int imageWidth;
+        int imageHeight;
+        base::samples::frame::frame_mode_t imageMode;
+        base::Time baseTime;
+        base::Time lastFrameTime;
 
         int argc = 0;
         const char* argv[1] = { "webrtc-streamer "};
         GMainLoop *mainloop = nullptr;
         SoupServer *soup_server = nullptr;
-        GHashTable *receiver_entry_table = nullptr;
+
+        std::map<SoupWebsocketConnection*, Receiver*> receivers;
+        void startReceiver(Receiver& receiver);
     };
 }
 
 #endif
-

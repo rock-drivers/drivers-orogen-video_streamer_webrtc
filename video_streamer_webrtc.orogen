@@ -1,6 +1,8 @@
 name 'video_streamer_webrtc'
 
+using_library 'base-logging', typekit: false
 using_library 'gstreamer-webrtc-1.0', typekit: false
+using_library 'gstreamer-video-1.0', typekit: false
 using_library 'libsoup-2.4', typekit: false
 using_library 'json-glib-1.0', typekit: false
 import_types_from 'base'
