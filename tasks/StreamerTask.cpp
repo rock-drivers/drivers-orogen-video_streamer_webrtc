@@ -52,7 +52,6 @@ struct video_streamer_webrtc::Receiver
     GstElement *pipeline = nullptr;
     GstElement *webrtcbin = nullptr;
     GstElement *appsrc = nullptr;
-    bool canReceive = false;
 
     Receiver() {}
     Receiver(Receiver const&) = delete;
@@ -84,14 +83,6 @@ static void error_cb (GstBus *bus, GstMessage *msg, StreamerTask *task) {
     g_free (debug_info);
 }
 
-static void start_feed (GstElement *source, guint size, Receiver* receiver) {
-    g_print ("Can feed %u\n", size);
-    receiver->canReceive = true;
-}
-static void stop_feed (GstElement *source, Receiver* receiver) {
-    g_print ("Stop feed\n");
-    receiver->canReceive = false;
-}
 static GstVideoFormat frameModeToGSTFormat(base::samples::frame::frame_mode_t format) {
     switch(format) {
         case base::samples::frame::MODE_RGB:
@@ -120,7 +111,7 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
 
     GError* error = nullptr;
     receiver->pipeline = gst_parse_launch ("webrtcbin name=webrtcbin "
-        "appsrc name=src ! videoconvert ! queue ! vp8enc ! rtpvp8pay ! queue !"
+        "appsrc name=src ! queue max-size-buffers=5 ! timeoverlay ! videoconvert ! vp8enc ! rtpvp8pay ! queue ! "
         "application/x-rtp,media=video,encoding-name=VP8,payload="
         RTP_PAYLOAD_TYPE " ! webrtcbin. ", &error);
     if (error) {
@@ -533,8 +524,6 @@ void StreamerTask::startReceiver(Receiver& receiver)
 
     GstCaps* caps = gst_video_info_to_caps(&info);
     g_object_set(receiver.appsrc, "caps", caps, "format", GST_FORMAT_TIME, NULL);
-    g_signal_connect(receiver.appsrc, "need-data", G_CALLBACK(start_feed), &receiver);
-    g_signal_connect(receiver.appsrc, "enough-data", G_CALLBACK(stop_feed), &receiver);
     gst_caps_unref(caps);
     gst_element_set_state (receiver.pipeline, GST_STATE_PLAYING);
     g_print("Started %p\n", receiver.connection);
@@ -626,10 +615,8 @@ void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
     GstFlowReturn ret;
 
     for (auto receiver : receivers) {
-        if (receiver.second->canReceive) {
-            g_print("Pushing frame with dts %lu: ", GST_BUFFER_PTS(buffer));
-            g_signal_emit_by_name (receiver.second->appsrc, "push-buffer", buffer, &ret);
-        }
+        g_print("Pushing frame with dts %lu: ", GST_BUFFER_PTS(buffer));
+        g_signal_emit_by_name (receiver.second->appsrc, "push-buffer", buffer, &ret);
     }
 
     /* Free the buffer now that we are done with it */
