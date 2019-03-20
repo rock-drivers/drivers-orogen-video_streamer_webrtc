@@ -377,9 +377,10 @@ soup_websocket_handler (G_GNUC_UNUSED SoupServer * server,
         G_CALLBACK (soup_websocket_closed_cb), task);
 
     auto receiver = create_receiver (connection);
-    receiver->task = task;
-
-    task->registerReceiver(receiver);
+    if (receiver) {
+        receiver->task = task;
+        task->registerReceiver(receiver);
+    }
 }
 
 static gchar *
