@@ -7,6 +7,7 @@
 #include <libsoup/soup-types.h>
 #include <base/samples/Frame.hpp>
 #include <gst/gstelement.h>
+#include <thread>
 
 struct _GMainLoop;
 typedef struct _GMainLoop GMainLoop;
@@ -93,8 +94,6 @@ namespace video_streamer_webrtc{
          */
         void updateHook();
 
-        bool breakUpdateHook();
-
         /** This hook is called by Orocos when the component is in the
          * RunTimeError state, at each activity step. See the discussion in
          * updateHook() about triggering options.
@@ -116,13 +115,12 @@ namespace video_streamer_webrtc{
 
         void registerReceiver(Receiver* entry);
         void deregisterReceiver(SoupWebsocketConnection* connection);
-        bool pushFrame(GstElement* element);
 
         int getImageWidth() const;
         int getImageHeight() const;
         base::samples::frame::frame_mode_t getImageMode() const;
-        void waitFirstFrame();
-        bool hasFirstFrame() const;
+
+        void pushPendingFrames();
 
     private:
         void init();
@@ -131,7 +129,8 @@ namespace video_streamer_webrtc{
         int imageHeight;
         base::samples::frame::frame_mode_t imageMode;
         base::Time baseTime;
-        base::Time lastFrameTime;
+        base::Time frameDuration;
+        base::Time nextFrameTime;
 
         int argc = 0;
         const char* argv[1] = { "webrtc-streamer "};
@@ -140,6 +139,10 @@ namespace video_streamer_webrtc{
 
         std::map<SoupWebsocketConnection*, Receiver*> receivers;
         void startReceiver(Receiver& receiver);
+
+        std::thread gstThread;
+        bool waitFirstFrame();
+        void pushFrame(base::samples::frame::Frame const& frame);
     };
 }
 

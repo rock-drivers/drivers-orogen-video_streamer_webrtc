@@ -10,6 +10,9 @@ import_types_from 'base'
 task_context 'StreamerTask' do
     needs_configuration
 
+    # The target fps
+    property 'fps', 'int', 25
+
     # The port on which the embedded server is listening
     property 'port', 'int', 57_778
 

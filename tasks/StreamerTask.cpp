@@ -52,7 +52,7 @@ struct video_streamer_webrtc::Receiver
     GstElement *pipeline = nullptr;
     GstElement *webrtcbin = nullptr;
     GstElement *appsrc = nullptr;
-    guint sourceid = 0;
+    bool canReceive = false;
 
     Receiver() {}
     Receiver(Receiver const&) = delete;
@@ -64,10 +64,6 @@ struct video_streamer_webrtc::Receiver
             gst_object_unref (GST_OBJECT (webrtcbin));
             gst_object_unref (GST_OBJECT (appsrc));
             gst_object_unref (GST_OBJECT (pipeline));
-        }
-
-        if (sourceid) {
-            g_source_remove (sourceid);
         }
 
         if (connection)
@@ -86,36 +82,15 @@ static void error_cb (GstBus *bus, GstMessage *msg, StreamerTask *task) {
     g_printerr ("Debugging information: %s\n", debug_info ? debug_info : "none");
     g_clear_error (&err);
     g_free (debug_info);
-
-    task->breakUpdateHook();
 }
 
-static gboolean wait_first_frame(StreamerTask* task) {
-    if (!task->hasFirstFrame()) {
-        g_print ("Waiting for first frame\n");
-        task->waitFirstFrame();
-        if (task->hasFirstFrame()) {
-            g_print("Got first frame\n");
-        }
-    }
-    return true;
-}
-static gboolean push_data(Receiver* receiver) {
-    receiver->task->pushFrame(receiver->appsrc);
-    return true;
-}
 static void start_feed (GstElement *source, guint size, Receiver* receiver) {
-    if (receiver->sourceid == 0) {
-        g_print ("Start feeding\n");
-        receiver->sourceid = g_idle_add ((GSourceFunc) push_data, receiver);
-    }
+    g_print ("Can feed %u\n", size);
+    receiver->canReceive = true;
 }
 static void stop_feed (GstElement *source, Receiver* receiver) {
-    if (receiver->sourceid != 0) {
-        g_print ("Stop feeding\n");
-        g_source_remove (receiver->sourceid);
-        receiver->sourceid = 0;
-    }
+    g_print ("Stop feed\n");
+    receiver->canReceive = false;
 }
 static GstVideoFormat frameModeToGSTFormat(base::samples::frame::frame_mode_t format) {
     switch(format) {
@@ -145,7 +120,7 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
 
     GError* error = nullptr;
     receiver->pipeline = gst_parse_launch ("webrtcbin name=webrtcbin "
-        "appsrc name=src ! videoconvert ! vp8enc ! rtpvp8pay ! "
+        "appsrc name=src ! videoconvert ! queue ! vp8enc ! rtpvp8pay ! queue !"
         "application/x-rtp,media=video,encoding-name=VP8,payload="
         RTP_PAYLOAD_TYPE " ! webrtcbin. ", &error);
     if (error) {
@@ -479,6 +454,7 @@ bool StreamerTask::configureHook()
     soup_server_listen_all (soup_server, _port.get(),
         (SoupServerListenOptions) 0, NULL);
 
+    frameDuration = base::Time::fromSeconds(1) / _fps.get();
     return true;
 }
 bool StreamerTask::startHook()
@@ -486,18 +462,31 @@ bool StreamerTask::startHook()
     if (! StreamerTaskBase::startHook())
         return false;
     hasFrame = false;
+    gstThread = std::thread([this](){ g_main_loop_run(mainloop); });
     return true;
 }
+
+int pushPendingFramesIdleCallback(StreamerTask* task)
+{
+    task->pushPendingFrames();
+    return false;
+}
+
 void StreamerTask::updateHook()
 {
+    if (hasFrame)
+    {
+        g_print("Got frame\n");
+        g_idle_add((GSourceFunc)pushPendingFramesIdleCallback, this);
+    }
+    else if (waitFirstFrame())
+    {
+        for (auto& receiver: receivers) {
+            startReceiver(*receiver.second);
+        }
+    }
+
     StreamerTaskBase::updateHook();
-    g_idle_add ((GSourceFunc) wait_first_frame, this);
-    g_main_loop_run(mainloop);
-}
-bool StreamerTask::breakUpdateHook()
-{
-    g_main_loop_quit(mainloop);
-    return true;
 }
 void StreamerTask::errorHook()
 {
@@ -508,6 +497,8 @@ void StreamerTask::stopHook()
     for (auto& entry : receivers) {
         gst_element_set_state(entry.second->pipeline, GST_STATE_PAUSED);
     }
+    g_main_loop_quit(mainloop);
+    gstThread.join();
     StreamerTaskBase::stopHook();
 }
 void StreamerTask::cleanupHook()
@@ -573,73 +564,74 @@ base::samples::frame::frame_mode_t StreamerTask::getImageMode() const
     return imageMode;
 }
 
-bool StreamerTask::hasFirstFrame() const
-{
-    return hasFrame;
-}
-void StreamerTask::waitFirstFrame()
-{
-    RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> frame_ptr;
-    if (_images.read(frame_ptr) == RTT::NewData)
-    {
-        hasFrame = true;
-        imageWidth = frame_ptr->getWidth();
-        imageHeight = frame_ptr->getHeight();
-        imageMode = frame_ptr->getFrameMode();
-        baseTime = frame_ptr->time;
-        for (auto& receiver: receivers) {
-            startReceiver(*receiver.second);
-        }
-    }
-}
-
-bool StreamerTask::pushFrame(GstElement* element)
+bool StreamerTask::waitFirstFrame()
 {
     RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> frame_ptr;
     if (_images.read(frame_ptr) != RTT::NewData)
-        return true;
+        return false;
 
+    hasFrame = true;
+    imageWidth = frame_ptr->getWidth();
+    imageHeight = frame_ptr->getHeight();
+    imageMode = frame_ptr->getFrameMode();
+    baseTime = frame_ptr->time;
+    nextFrameTime = baseTime;
+    return true;
+}
+
+void StreamerTask::pushPendingFrames()
+{
+    RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> frame_ptr;
+    while (_images.read(frame_ptr) == RTT::NewData)
+    {
+        g_print("Pushing received frame\n");
+        pushFrame(*frame_ptr);
+    }
+}
+
+void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
+{
     // Validate that width/height/format did not change
-    if (imageWidth != frame_ptr->getWidth()) {
+    if (imageWidth != frame.getWidth()) {
         LOG_ERROR_S << "Image width changed while playing" << std::endl;
-        return true;
+        return;
     }
-    else if (imageHeight != frame_ptr->getHeight()) {
+    else if (imageHeight != frame.getHeight()) {
         LOG_ERROR_S << "Image height changed while playing" << std::endl;
-        return true;
+        return;
     }
-    else if (imageMode != frame_ptr->getFrameMode()) {
+    else if (imageMode != frame.getFrameMode()) {
         LOG_ERROR_S << "Image mode changed while playing" << std::endl;
-        return true;
+        return;
     }
 
-    auto const& frame(*frame_ptr);
-    auto timestamp = frame.time;
+    auto time = frame.time;
+    if (time < nextFrameTime) {
+        return;
+    }
 
-    if ((timestamp - lastFrameTime).toSeconds() < 5)
-        return true;
-
-    lastFrameTime = timestamp;
+    while (time > nextFrameTime + frameDuration) {
+        nextFrameTime = nextFrameTime + frameDuration;
+    }
 
     /* Create a buffer to wrap the last received image */
     GstBuffer *buffer = gst_buffer_new_and_alloc(frame.image.size());
     gst_buffer_fill(buffer, 0, frame.image.data(), frame.image.size());
 
     /* Set its timestamp and duration */
-    GST_BUFFER_PTS(buffer) = (timestamp - baseTime).toMicroseconds() * 1000;
+    GST_BUFFER_PTS(buffer) = (nextFrameTime - baseTime).toMicroseconds() * 1000;
     GST_BUFFER_DTS(buffer) = GST_CLOCK_TIME_NONE;
+    GST_BUFFER_DURATION(buffer) = frameDuration.toMicroseconds() * 1000;
 
     GstFlowReturn ret;
-    g_print("Pushing frame ");
-    g_signal_emit_by_name (element, "push-buffer", buffer, &ret);
+
+    for (auto receiver : receivers) {
+        if (receiver.second->canReceive) {
+            g_print("Pushing frame with dts %lu: ", GST_BUFFER_PTS(buffer));
+            g_signal_emit_by_name (receiver.second->appsrc, "push-buffer", buffer, &ret);
+        }
+    }
 
     /* Free the buffer now that we are done with it */
     gst_buffer_unref (buffer);
-    if (ret == GST_FLOW_OK) {
-        g_print("OK !\n" );
-    }
-    else {
-        g_print("Failed !\n" );
-    }
-    return (ret == GST_FLOW_OK);
 }
