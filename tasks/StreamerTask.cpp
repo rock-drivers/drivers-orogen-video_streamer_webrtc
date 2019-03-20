@@ -112,7 +112,8 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
 
     GError* error = nullptr;
     receiver->pipeline = gst_parse_launch ("webrtcbin name=webrtcbin "
-        "appsrc is-live=true name=src ! timeoverlay ! videoconvert ! vp8enc ! rtpvp8pay ! queue ! "
+        "appsrc is-live=true name=src ! videoconvert ! vp8enc ! "
+        "rtpvp8pay max-ptime=500000000 !"
         "application/x-rtp,media=video,encoding-name=VP8,payload="
         RTP_PAYLOAD_TYPE " ! webrtcbin. ", &error);
     if (error) {
@@ -517,8 +518,6 @@ void StreamerTask::registerReceiver(Receiver* receiver)
 }
 void StreamerTask::startReceiver(Receiver& receiver)
 {
-    gst_app_src_set_max_bytes(receiver.appsrc, imageByteSize * 10);
-
     GstVideoInfo info;
     int width  = getImageWidth();
     int height = getImageHeight();
@@ -528,8 +527,12 @@ void StreamerTask::startReceiver(Receiver& receiver)
     GstCaps* caps = gst_video_info_to_caps(&info);
     g_object_set(receiver.appsrc, "caps", caps, "format", GST_FORMAT_TIME, NULL);
     gst_caps_unref(caps);
+    gst_app_src_set_max_bytes(receiver.appsrc, imageByteSize * 5);
+
     gst_element_set_state (receiver.pipeline, GST_STATE_PLAYING);
     g_print("Started %p\n", receiver.connection);
+
+    baseTime = nextFrameTime;
 }
 void StreamerTask::deregisterReceiver(SoupWebsocketConnection* connection)
 {
@@ -567,8 +570,7 @@ bool StreamerTask::waitFirstFrame()
     imageHeight = frame_ptr->getHeight();
     imageMode = frame_ptr->getFrameMode();
     imageByteSize = frame_ptr->image.size();
-    baseTime = frame_ptr->time;
-    nextFrameTime = baseTime;
+    nextFrameTime = frame_ptr->time;
 
     return true;
 }
@@ -608,11 +610,17 @@ void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
         nextFrameTime = nextFrameTime + frameDuration;
     }
 
+    if (receivers.empty())
+        return;
+
     /* Create a buffer to wrap the last received image */
     GstBuffer *buffer = gst_buffer_new_and_alloc(frame.image.size());
     gst_buffer_fill(buffer, 0, frame.image.data(), frame.image.size());
 
     /* Set its timestamp and duration */
+    if (baseTime.isNull())
+        baseTime = nextFrameTime;
+
     GST_BUFFER_PTS(buffer) = (nextFrameTime - baseTime).toMicroseconds() * 1000;
     GST_BUFFER_DTS(buffer) = GST_CLOCK_TIME_NONE;
     GST_BUFFER_DURATION(buffer) = frameDuration.toMicroseconds() * 1000;
@@ -620,8 +628,13 @@ void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
     GstFlowReturn ret;
 
     for (auto receiver : receivers) {
-        g_print("appsrc buffer size: %lu\n", gst_app_src_get_current_level_bytes(receiver.second->appsrc));
-        g_print("Pushing frame with dts %lu\n: ", GST_BUFFER_PTS(buffer));
-        ret = gst_app_src_push_buffer(receiver.second->appsrc, buffer);
+        auto& appsrc = *(receiver.second->appsrc);
+        auto current = gst_app_src_get_current_level_bytes(&appsrc);
+        auto max     = gst_app_src_get_max_bytes(&appsrc);
+        if (current <= max) {
+            g_print("appsrc buffer size: %lu/%lu\n", current, max);
+            g_print("Pushing frame with dts %lu\n: ", GST_BUFFER_PTS(buffer));
+            ret = gst_app_src_push_buffer(receiver.second->appsrc, buffer);
+        }
     }
 }
