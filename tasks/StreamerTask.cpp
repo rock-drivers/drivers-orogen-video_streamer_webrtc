@@ -10,6 +10,7 @@
 #include <gst/gst.h>
 #include <gst/video/video-info.h>
 #include <gst/sdp/sdp.h>
+#include <gst/app/app.h>
 
 #define GST_USE_UNSTABLE_API
 #include <gst/webrtc/webrtc.h>
@@ -51,7 +52,7 @@ struct video_streamer_webrtc::Receiver
 
     GstElement *pipeline = nullptr;
     GstElement *webrtcbin = nullptr;
-    GstElement *appsrc = nullptr;
+    GstAppSrc *appsrc = nullptr;
 
     Receiver() {}
     Receiver(Receiver const&) = delete;
@@ -111,7 +112,7 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
 
     GError* error = nullptr;
     receiver->pipeline = gst_parse_launch ("webrtcbin name=webrtcbin "
-        "appsrc name=src ! queue max-size-buffers=5 ! timeoverlay ! videoconvert ! vp8enc ! rtpvp8pay ! queue ! "
+        "appsrc is-live=true name=src ! timeoverlay ! videoconvert ! vp8enc ! rtpvp8pay ! queue ! "
         "application/x-rtp,media=video,encoding-name=VP8,payload="
         RTP_PAYLOAD_TYPE " ! webrtcbin. ", &error);
     if (error) {
@@ -124,7 +125,7 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
         gst_bin_get_by_name (GST_BIN (receiver->pipeline), "webrtcbin");
     g_assert (receiver->webrtcbin != NULL);
     receiver->appsrc =
-        gst_bin_get_by_name (GST_BIN (receiver->pipeline), "src");
+        (GstAppSrc*)gst_bin_get_by_name (GST_BIN (receiver->pipeline), "src");
     g_assert (receiver->webrtcbin != NULL);
 
     g_signal_connect (receiver->webrtcbin, "on-negotiation-needed",
@@ -516,8 +517,9 @@ void StreamerTask::registerReceiver(Receiver* receiver)
 }
 void StreamerTask::startReceiver(Receiver& receiver)
 {
-    GstVideoInfo info;
+    gst_app_src_set_max_bytes(receiver.appsrc, imageByteSize * 10);
 
+    GstVideoInfo info;
     int width  = getImageWidth();
     int height = getImageHeight();
     GstVideoFormat gstFormat = frameModeToGSTFormat(getImageMode());
@@ -564,8 +566,10 @@ bool StreamerTask::waitFirstFrame()
     imageWidth = frame_ptr->getWidth();
     imageHeight = frame_ptr->getHeight();
     imageMode = frame_ptr->getFrameMode();
+    imageByteSize = frame_ptr->image.size();
     baseTime = frame_ptr->time;
     nextFrameTime = baseTime;
+
     return true;
 }
 
@@ -616,10 +620,8 @@ void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
     GstFlowReturn ret;
 
     for (auto receiver : receivers) {
-        g_print("Pushing frame with dts %lu: ", GST_BUFFER_PTS(buffer));
-        g_signal_emit_by_name (receiver.second->appsrc, "push-buffer", buffer, &ret);
+        g_print("appsrc buffer size: %lu\n", gst_app_src_get_current_level_bytes(receiver.second->appsrc));
+        g_print("Pushing frame with dts %lu\n: ", GST_BUFFER_PTS(buffer));
+        ret = gst_app_src_push_buffer(receiver.second->appsrc, buffer);
     }
-
-    /* Free the buffer now that we are done with it */
-    gst_buffer_unref (buffer);
 }

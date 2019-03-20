@@ -127,6 +127,7 @@ namespace video_streamer_webrtc{
         bool hasFrame = false;
         int imageWidth;
         int imageHeight;
+        int imageByteSize;
         base::samples::frame::frame_mode_t imageMode;
         base::Time baseTime;
         base::Time frameDuration;

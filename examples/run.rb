@@ -5,7 +5,9 @@ class VideoGenerator < Syskit::RubyTaskContext
     output_port 'out', '/base/samples/frame/Frame'
 
     WIDTH  = 800
-    HEIGHT = 600
+    HEIGHT = 40
+
+    LINE_HEIGHT = 1
 
     def initialize(**args)
         super
@@ -19,20 +21,17 @@ class VideoGenerator < Syskit::RubyTaskContext
         @sample.pixel_size = 3
         @sample.data_depth = 8
         @sample.frame_status = :STATUS_VALID
-        @pixels = [WIDTH * HEIGHT * 3].pack('Q') + "\x00".b * WIDTH * HEIGHT * 3
+        @pixels = [WIDTH * HEIGHT * 3].pack('Q') + "\xff".b * WIDTH * HEIGHT * 3
         @sample.image.from_buffer(@pixels)
         @line = 0
-        @rgb = 0
     end
 
     poll do
-        @line = (@line + 1) % (HEIGHT - 10)
-        @rgb  = (@rgb + 1) % 3
+        @line = (@line += 1) % HEIGHT
 
         pixels = @pixels.dup
         single_pix = "\x00\x00\x00".b
-        single_pix[@rgb, 1] = "\xff".b
-        pixels[8 + @line * WIDTH * 3, WIDTH * 3 * 10] = single_pix * WIDTH * 10
+        pixels[8 + @line * WIDTH * 3, WIDTH * 3] = single_pix * WIDTH
         @sample.time = Time.now
         @sample.image.from_buffer(pixels)
         orocos_task.out.write(@sample)
