@@ -82,6 +82,7 @@ static void error_cb (GstBus *bus, GstMessage *msg, StreamerTask *task) {
     g_printerr ("Debugging information: %s\n", debug_info ? debug_info : "none");
     g_clear_error (&err);
     g_free (debug_info);
+    task->emitGstreamerError();
 }
 
 static GstVideoFormat frameModeToGSTFormat(base::samples::frame::frame_mode_t format) {
@@ -117,7 +118,7 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
         "application/x-rtp,media=video,encoding-name=VP8,payload="
         RTP_PAYLOAD_TYPE " ! webrtcbin. ", &error);
     if (error) {
-        g_error ("Could not create WebRTC pipeline: %s\n", error->message);
+        g_warning ("Could not create WebRTC pipeline: %s\n", error->message);
         g_error_free (error);
         return nullptr;
     }
@@ -127,7 +128,7 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
     g_assert (receiver->webrtcbin != NULL);
     receiver->appsrc =
         (GstAppSrc*)gst_bin_get_by_name (GST_BIN (receiver->pipeline), "src");
-    g_assert (receiver->webrtcbin != NULL);
+    g_assert (receiver->appsrc != NULL);
 
     g_signal_connect (receiver->webrtcbin, "on-negotiation-needed",
         G_CALLBACK (on_negotiation_needed_cb), (gpointer) receiver.get());
@@ -383,6 +384,9 @@ soup_websocket_handler (G_GNUC_UNUSED SoupServer * server,
         receiver->task = task;
         task->registerReceiver(receiver);
     }
+    else {
+        task->emitGstreamerError();
+    }
 }
 
 static gchar *
@@ -456,8 +460,14 @@ bool StreamerTask::startHook()
     if (! StreamerTaskBase::startHook())
         return false;
     hasFrame = false;
+    hasGstreamerError = false;
     gstThread = std::thread([this](){ g_main_loop_run(mainloop); });
     return true;
+}
+
+void StreamerTask::emitGstreamerError()
+{
+    hasGstreamerError = true;
 }
 
 int pushPendingFramesIdleCallback(StreamerTask* task)
@@ -468,9 +478,12 @@ int pushPendingFramesIdleCallback(StreamerTask* task)
 
 void StreamerTask::updateHook()
 {
-    if (hasFrame)
+    if (hasGstreamerError)
     {
-        g_print("Got frame\n");
+        exception(GSTREAMER_ERROR);
+    }
+    else if (hasFrame)
+    {
         g_idle_add((GSourceFunc)pushPendingFramesIdleCallback, this);
     }
     else if (waitFirstFrame())

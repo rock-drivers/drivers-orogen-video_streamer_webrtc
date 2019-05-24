@@ -21,4 +21,6 @@ task_context 'StreamerTask' do
     input_port 'images', ro_ptr('/base/samples/frame/Frame')
 
     port_driven
+
+    exception_states 'GSTREAMER_ERROR'
 end

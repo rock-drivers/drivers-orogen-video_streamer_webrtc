@@ -122,9 +122,12 @@ namespace video_streamer_webrtc{
 
         void pushPendingFrames();
 
+        void emitGstreamerError();
+
     private:
         void init();
         bool hasFrame = false;
+        bool hasGstreamerError = false;
         int imageWidth;
         int imageHeight;
         int imageByteSize;
