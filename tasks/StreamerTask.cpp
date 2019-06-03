@@ -647,7 +647,9 @@ void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
         if (current <= max) {
             g_print("appsrc buffer size: %lu/%lu\n", current, max);
             g_print("Pushing frame with dts %lu\n: ", GST_BUFFER_PTS(buffer));
-            ret = gst_app_src_push_buffer(receiver.second->appsrc, buffer);
+            ret = gst_app_src_push_buffer(receiver.second->appsrc,
+                                          gst_buffer_copy(buffer));
         }
     }
+    gst_buffer_unref(buffer);
 }
