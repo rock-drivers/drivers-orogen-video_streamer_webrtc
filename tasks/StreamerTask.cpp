@@ -251,7 +251,7 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
             break;
 
         default:
-        g_assert_not_reached ();
+            g_assert_not_reached ();
     }
 
     json_parser = json_parser_new ();
@@ -285,20 +285,20 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
         int ret;
 
         if (!json_object_has_member (data_json_object, "type")) {
-        g_error ("Received SDP message without type field\n");
-        goto cleanup;
+            g_error ("Received SDP message without type field\n");
+            goto cleanup;
         }
         sdp_type_string = json_object_get_string_member (data_json_object, "type");
 
         if (g_strcmp0 (sdp_type_string, "answer") != 0) {
-        g_error ("Expected SDP message type \"answer\", got \"%s\"\n",
-            sdp_type_string);
-        goto cleanup;
+            g_error ("Expected SDP message type \"answer\", got \"%s\"\n",
+                sdp_type_string);
+            goto cleanup;
         }
 
         if (!json_object_has_member (data_json_object, "sdp")) {
-        g_error ("Received SDP message without SDP string\n");
-        goto cleanup;
+            g_error ("Received SDP message without SDP string\n");
+            goto cleanup;
         }
         sdp_string = json_object_get_string_member (data_json_object, "sdp");
 
@@ -311,8 +311,8 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
             gst_sdp_message_parse_buffer ((guint8 *) sdp_string,
             strlen (sdp_string), sdp);
         if (ret != GST_SDP_OK) {
-        g_error ("Could not parse SDP string\n");
-        goto cleanup;
+            g_error ("Could not parse SDP string\n");
+            goto cleanup;
         }
 
         answer = gst_webrtc_session_description_new (GST_WEBRTC_SDP_TYPE_ANSWER,
@@ -329,15 +329,15 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
         const gchar *candidate_string;
 
         if (!json_object_has_member (data_json_object, "sdpMLineIndex")) {
-        g_error ("Received ICE message without mline index\n");
-        goto cleanup;
+            g_error ("Received ICE message without mline index\n");
+            goto cleanup;
         }
         mline_index =
             json_object_get_int_member (data_json_object, "sdpMLineIndex");
 
         if (!json_object_has_member (data_json_object, "candidate")) {
-        g_error ("Received ICE message without ICE candidate string\n");
-        goto cleanup;
+            g_error ("Received ICE message without ICE candidate string\n");
+            goto cleanup;
         }
         candidate_string = json_object_get_string_member (data_json_object,
             "candidate");
