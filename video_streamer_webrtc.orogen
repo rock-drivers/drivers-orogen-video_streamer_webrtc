@@ -8,8 +8,33 @@ using_library 'libsoup-2.4', typekit: false
 using_library 'json-glib-1.0', typekit: false
 import_types_from 'base'
 
+OroGen::Spec::Deployment.register_global_initializer(:gstreamer)
+if defined?(OroGen::Gen::RTT_CPP::Deployment)
+    OroGen::Gen::RTT_CPP::Deployment.register_global_initializer(
+        :gstreamer,
+        deployment_cmake: <<~GST_DEPLOYMENT_CMAKE,
+            orogen_pkg_check_modules(gstreamer_app_1_0 REQUIRED gstreamer-app-1.0)
+            include_directories(${gstreamer_app_1_0_INCLUDE_DIRS})
+            add_definitions(${gstreamer_app_1_0_CFLAGS_OTHER})
+            link_directories(${gstreamer_app_1_0_LIBRARY_DIRS})
+            target_link_libraries(<%= deployer.name %> ${gstreamer_app_1_0_LIBRARIES})
+        GST_DEPLOYMENT_CMAKE
+        global_scope: <<~GST_TOPLEVEL,
+            #include <gst/gst.h>
+        GST_TOPLEVEL
+        init: <<~GST_INIT,
+            gst_init(&argc, &argv);
+        GST_INIT
+        exit: <<~GST_EXIT
+            gst_deinit();
+        GST_EXIT
+    )
+end
+
 task_context 'StreamerTask' do
     needs_configuration
+
+    needs_global_initializer :gstreamer
 
     # The target fps
     property 'fps', 'int', 25
