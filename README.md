@@ -1,5 +1,13 @@
 # Video streaming using WebRTC
 
+## IMPORTANT
+
+As of today (2019/06/24 using Chrome 75 and GStreamer 1.14), the resolution of
+ICE candidates that use .local addresses don't seem to work with GStreamer. The
+workaround is to disable their usage completely in `chrome://flags`.
+
+## Description
+
 This component allows to stream an image feed using webrtc, using VP8 to
 encode the stream.
 
