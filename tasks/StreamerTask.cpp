@@ -621,16 +621,8 @@ void StreamerTask::pushPendingFrames()
 
 void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
 {
-    // Validate that width/height/format did not change
-    if (imageWidth != frame.getWidth()) {
-        LOG_ERROR_S << "Image width changed while playing" << std::endl;
-        return;
-    }
-    else if (imageHeight != frame.getHeight()) {
-        LOG_ERROR_S << "Image height changed while playing" << std::endl;
-        return;
-    }
-    else if (imageMode != frame.getFrameMode()) {
+    // Validate that format did not change
+    if (imageMode != frame.getFrameMode()) {
         LOG_ERROR_S << "Image mode changed while playing" << std::endl;
         return;
     }
