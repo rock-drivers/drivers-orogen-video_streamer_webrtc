@@ -126,9 +126,11 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
     receiver->webrtcbin =
         gst_bin_get_by_name (GST_BIN (receiver->pipeline), "webrtcbin");
     g_assert (receiver->webrtcbin != NULL);
+    gst_object_ref(receiver->webrtcbin);
     receiver->appsrc =
         (GstAppSrc*)gst_bin_get_by_name (GST_BIN (receiver->pipeline), "src");
     g_assert (receiver->appsrc != NULL);
+    gst_object_ref(receiver->appsrc);
 
     g_signal_connect (receiver->webrtcbin, "on-negotiation-needed",
         G_CALLBACK (on_negotiation_needed_cb), (gpointer) receiver.get());
@@ -228,7 +230,7 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
     SoupWebsocketDataType data_type, GBytes * message, gpointer user_data)
 {
     gsize size;
-    gchar *data;
+    const gchar *data;
     gchar *data_string;
     const gchar *type_string;
     JsonNode *root_json;
@@ -239,16 +241,14 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
 
     switch (data_type) {
         case SOUP_WEBSOCKET_DATA_BINARY:
-        g_error ("Received unknown binary message, ignoring\n");
-        g_bytes_unref (message);
-        return;
+            g_error ("Received unknown binary message, ignoring\n");
+            return;
 
         case SOUP_WEBSOCKET_DATA_TEXT:
-        data = (char*)g_bytes_unref_to_data (message, &size);
-        /* Convert to NULL-terminated string */
-        data_string = g_strndup (data, size);
-        g_free (data);
-        break;
+            data = (char*)g_bytes_get_data(message, &size);
+            /* Convert to NULL-terminated string */
+            data_string = g_strndup (data, size);
+            break;
 
         default:
         g_assert_not_reached ();
