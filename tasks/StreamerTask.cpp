@@ -375,6 +375,10 @@ soup_websocket_handler (G_GNUC_UNUSED SoupServer * server,
     G_GNUC_UNUSED SoupClientContext * client_context, gpointer _task)
 {
     auto task = (StreamerTask*)_task;
+    if (task->serverIsPaused()) {
+        return;
+    }
+
     g_print ("Processing new websocket connection %p", (gpointer) connection);
     g_signal_connect (G_OBJECT (connection), "closed",
         G_CALLBACK (soup_websocket_closed_cb), task);
@@ -432,21 +436,15 @@ bool StreamerTask::configureHook()
         return false;
 
     frameDuration = base::Time::fromSeconds(1) / _fps.get();
-    return true;
-}
-bool StreamerTask::startHook()
-{
-    if (! StreamerTaskBase::startHook())
-        return false;
-    hasFrame = false;
-    hasGstreamerError = false;
+
+    serverPaused = true;
     gstThread = std::thread([this](){
         maincontext = g_main_context_new();
         g_main_context_push_thread_default(maincontext);
         mainloop = g_main_loop_new (maincontext, false);
         g_assert (mainloop != NULL);
 
-        soup_server =
+        auto soup_server =
             soup_server_new (SOUP_SERVER_SERVER_HEADER, "webrtc-soup-server", NULL);
         soup_server_add_websocket_handler (soup_server, "/ws", NULL, NULL,
             soup_websocket_handler, (gpointer) this, NULL);
@@ -455,6 +453,7 @@ bool StreamerTask::startHook()
 
         g_main_loop_run(mainloop);
 
+        g_object_unref (G_OBJECT (soup_server));
         g_main_loop_unref(mainloop);
         g_main_context_unref(maincontext);
         mainloop = nullptr;
@@ -462,22 +461,46 @@ bool StreamerTask::startHook()
     });
     return true;
 }
+bool StreamerTask::startHook()
+{
+    if (! StreamerTaskBase::startHook())
+        return false;
+    hasFrame = false;
+    hasGstreamerError = false;
+    queueIdleCallback(G_SOURCE_FUNC(resumeServerCallback));
+    return true;
+}
+
+bool StreamerTask::serverIsPaused() const
+{
+    return serverPaused;
+}
+
+void StreamerTask::resumeServer()
+{
+    serverPaused = false;
+}
+
+void StreamerTask::pauseServer()
+{
+    for (auto& entry : receivers) {
+        delete entry.second;
+    }
+    receivers.clear();
+    serverPaused = true;
+}
 
 void StreamerTask::emitGstreamerError()
 {
     hasGstreamerError = true;
 }
 
-int pushPendingFramesIdleCallback(StreamerTask* task)
+void StreamerTask::queueIdleCallback(GSourceFunc callback)
 {
-    task->pushPendingFrames();
-    return false;
-}
-
-int startReceiversIdleCallback(StreamerTask* task)
-{
-    task->startReceivers();
-    return false;
+    auto source = g_idle_source_new();
+    g_source_set_callback(source, G_SOURCE_FUNC(callback), this, nullptr);
+    g_source_attach(source, maincontext);
+    g_source_unref(source);
 }
 
 void StreamerTask::updateHook()
@@ -489,22 +512,12 @@ void StreamerTask::updateHook()
     else if (hasFrame)
     {
         g_print("queueing frame callback\n");
-        auto source = g_idle_source_new();
-        g_source_set_callback(source,
-            G_SOURCE_FUNC(pushPendingFramesIdleCallback),
-            this, nullptr);
-        g_source_attach(source, maincontext);
-        g_source_unref(source);
+        queueIdleCallback(G_SOURCE_FUNC(pushPendingFramesCallback));
     }
     else if (waitFirstFrame())
     {
         g_print("queueing frame callback\n");
-        auto source = g_idle_source_new();
-        g_source_set_callback(source,
-            G_SOURCE_FUNC(startReceiversIdleCallback),
-            this, nullptr);
-        g_source_attach(source, maincontext);
-        g_source_unref(source);
+        queueIdleCallback(G_SOURCE_FUNC(startReceiversCallback));
     }
 
     StreamerTaskBase::updateHook();
@@ -513,23 +526,17 @@ void StreamerTask::errorHook()
 {
     StreamerTaskBase::errorHook();
 }
+
+
 void StreamerTask::stopHook()
 {
-    for (auto& entry : receivers) {
-        gst_element_set_state(entry.second->pipeline, GST_STATE_PAUSED);
-    }
-    g_main_loop_quit(mainloop);
-    gstThread.join();
+    queueIdleCallback(G_SOURCE_FUNC(pauseServerCallback));
     StreamerTaskBase::stopHook();
 }
 void StreamerTask::cleanupHook()
 {
-    for (auto& entry : receivers) {
-        delete entry.second;
-    }
-    receivers.clear();
-    g_object_unref (G_OBJECT (soup_server));
-    g_main_loop_unref (mainloop);
+    g_main_loop_quit(mainloop);
+    gstThread.join();
     StreamerTaskBase::cleanupHook();
 }
 
@@ -665,4 +672,29 @@ void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
         }
     }
     gst_buffer_unref(buffer);
+}
+
+
+int StreamerTask::pushPendingFramesCallback(StreamerTask* task)
+{
+    task->pushPendingFrames();
+    return false;
+}
+
+int StreamerTask::startReceiversCallback(StreamerTask* task)
+{
+    task->startReceivers();
+    return false;
+}
+
+int StreamerTask::resumeServerCallback(StreamerTask* task)
+{
+    task->resumeServer();
+    return false;
+}
+
+int StreamerTask::pauseServerCallback(StreamerTask* task)
+{
+    task->pauseServer();
+    return false;
 }
