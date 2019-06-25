@@ -121,6 +121,7 @@ namespace video_streamer_webrtc{
         base::samples::frame::frame_mode_t getImageMode() const;
 
         void pushPendingFrames();
+        void startReceivers();
 
         void emitGstreamerError();
 
@@ -138,6 +139,7 @@ namespace video_streamer_webrtc{
 
         int argc = 0;
         const char* argv[1] = { "webrtc-streamer "};
+        GMainContext *maincontext = nullptr;
         GMainLoop *mainloop = nullptr;
         SoupServer *soup_server = nullptr;
 

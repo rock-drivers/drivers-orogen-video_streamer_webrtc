@@ -411,30 +411,16 @@ get_string_from_json_object (JsonObject * object)
 StreamerTask::StreamerTask(std::string const& name)
     : StreamerTaskBase(name)
 {
-    init();
 }
 
 StreamerTask::StreamerTask(std::string const& name, RTT::ExecutionEngine* engine)
     : StreamerTaskBase(name, engine)
 {
-    init();
 }
 
 StreamerTask::~StreamerTask()
 {
-    g_main_loop_unref (mainloop);
-    gst_deinit ();
 }
-
-void StreamerTask::init()
-{
-    setlocale (LC_ALL, "");
-    gst_init (&argc, (char***)&argv);
-    mainloop = g_main_loop_new (NULL, FALSE);
-    g_assert (mainloop != NULL);
-}
-
-
 
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See StreamerTask.hpp for more detailed
@@ -445,13 +431,6 @@ bool StreamerTask::configureHook()
     if (! StreamerTaskBase::configureHook())
         return false;
 
-    soup_server =
-        soup_server_new (SOUP_SERVER_SERVER_HEADER, "webrtc-soup-server", NULL);
-    soup_server_add_websocket_handler (soup_server, "/ws", NULL, NULL,
-        soup_websocket_handler, (gpointer) this, NULL);
-    soup_server_listen_all (soup_server, _port.get(),
-        (SoupServerListenOptions) 0, NULL);
-
     frameDuration = base::Time::fromSeconds(1) / _fps.get();
     return true;
 }
@@ -461,7 +440,26 @@ bool StreamerTask::startHook()
         return false;
     hasFrame = false;
     hasGstreamerError = false;
-    gstThread = std::thread([this](){ g_main_loop_run(mainloop); });
+    gstThread = std::thread([this](){
+        maincontext = g_main_context_new();
+        g_main_context_push_thread_default(maincontext);
+        mainloop = g_main_loop_new (maincontext, false);
+        g_assert (mainloop != NULL);
+
+        soup_server =
+            soup_server_new (SOUP_SERVER_SERVER_HEADER, "webrtc-soup-server", NULL);
+        soup_server_add_websocket_handler (soup_server, "/ws", NULL, NULL,
+            soup_websocket_handler, (gpointer) this, NULL);
+        soup_server_listen_all (soup_server, _port.get(),
+            (SoupServerListenOptions) 0, NULL);
+
+        g_main_loop_run(mainloop);
+
+        g_main_loop_unref(mainloop);
+        g_main_context_unref(maincontext);
+        mainloop = nullptr;
+        maincontext = nullptr;
+    });
     return true;
 }
 
@@ -476,6 +474,12 @@ int pushPendingFramesIdleCallback(StreamerTask* task)
     return false;
 }
 
+int startReceiversIdleCallback(StreamerTask* task)
+{
+    task->startReceivers();
+    return false;
+}
+
 void StreamerTask::updateHook()
 {
     if (hasGstreamerError)
@@ -484,13 +488,23 @@ void StreamerTask::updateHook()
     }
     else if (hasFrame)
     {
-        g_idle_add((GSourceFunc)pushPendingFramesIdleCallback, this);
+        g_print("queueing frame callback\n");
+        auto source = g_idle_source_new();
+        g_source_set_callback(source,
+            G_SOURCE_FUNC(pushPendingFramesIdleCallback),
+            this, nullptr);
+        g_source_attach(source, maincontext);
+        g_source_unref(source);
     }
     else if (waitFirstFrame())
     {
-        for (auto& receiver: receivers) {
-            startReceiver(*receiver.second);
-        }
+        g_print("queueing frame callback\n");
+        auto source = g_idle_source_new();
+        g_source_set_callback(source,
+            G_SOURCE_FUNC(startReceiversIdleCallback),
+            this, nullptr);
+        g_source_attach(source, maincontext);
+        g_source_unref(source);
     }
 
     StreamerTaskBase::updateHook();
@@ -515,6 +529,7 @@ void StreamerTask::cleanupHook()
     }
     receivers.clear();
     g_object_unref (G_OBJECT (soup_server));
+    g_main_loop_unref (mainloop);
     StreamerTaskBase::cleanupHook();
 }
 
@@ -528,6 +543,12 @@ void StreamerTask::registerReceiver(Receiver* receiver)
     else
         g_print("Waiting for first frame before starting %p\n", receiver->connection);
 
+}
+void StreamerTask::startReceivers()
+{
+    for (auto& receiver: receivers) {
+        startReceiver(*receiver.second);
+    }
 }
 void StreamerTask::startReceiver(Receiver& receiver)
 {
@@ -593,7 +614,7 @@ void StreamerTask::pushPendingFrames()
     RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> frame_ptr;
     while (_images.read(frame_ptr) == RTT::NewData)
     {
-        g_print("Pushing received frame\n");
+        g_print("Received frame ...\n");
         pushFrame(*frame_ptr);
     }
 }
