@@ -24,7 +24,7 @@ using namespace video_streamer_webrtc;
 
 #define RTP_PAYLOAD_TYPE "96"
 
-Receiver *create_receiver (SoupWebsocketConnection * connection);
+Receiver *create_receiver (SoupWebsocketConnection * connection, Encoding& encoding);
 
 GstPadProbeReturn payloader_caps_event_probe_cb (GstPad * pad,
     GstPadProbeInfo * info, gpointer user_data);
@@ -102,7 +102,7 @@ static GstVideoFormat frameModeToGSTFormat(base::samples::frame::frame_mode_t fo
     }
 }
 
-Receiver* create_receiver(SoupWebsocketConnection * connection)
+Receiver* create_receiver(SoupWebsocketConnection * connection, Encoding const& encoding)
 {
     unique_ptr<Receiver> receiver(new Receiver());
     receiver->connection = connection;
@@ -111,12 +111,20 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
     g_signal_connect (G_OBJECT (connection), "message",
         G_CALLBACK (soup_websocket_message_cb), (gpointer) receiver.get());
 
+    std::ostringstream pipelineDefinition;
+    pipelineDefinition
+        << "webrtcbin name=webrtcbin appsrc is-live=true name=src "
+        << "! videoconvert "
+        << "! " << encoding.encoder_element
+        << "! " << encoding.payload_element
+        << "! application/x-rtp,media=video,encoding-name=" << encoding.encoder_name
+        <<    ",payload=" << RTP_PAYLOAD_TYPE
+        << "! webrtcbin.";
+
+    std::cout << "Using pipeline: " << pipelineDefinition.str() << std::endl;
+
     GError* error = nullptr;
-    receiver->pipeline = gst_parse_launch ("webrtcbin name=webrtcbin "
-        "appsrc is-live=true name=src ! videoconvert ! vp8enc ! "
-        "rtpvp8pay max-ptime=500000000 !"
-        "application/x-rtp,media=video,encoding-name=VP8,payload="
-        RTP_PAYLOAD_TYPE " ! webrtcbin. ", &error);
+    receiver->pipeline = gst_parse_launch(pipelineDefinition.str().c_str(), &error);
     if (error) {
         g_warning ("Could not create WebRTC pipeline: %s\n", error->message);
         g_error_free (error);
@@ -383,7 +391,7 @@ soup_websocket_handler (G_GNUC_UNUSED SoupServer * server,
     g_signal_connect (G_OBJECT (connection), "closed",
         G_CALLBACK (soup_websocket_closed_cb), task);
 
-    auto receiver = create_receiver (connection);
+    auto receiver = create_receiver (connection, task->getEncoding());
     if (receiver) {
         receiver->task = task;
         task->registerReceiver(receiver);
@@ -412,6 +420,22 @@ get_string_from_json_object (JsonObject * object)
     return text;
 }
 
+const Encoding KNOWN_ENCODERS[] = {
+    { VP8, "vp8enc", "rtpvp8pay", "VP8" },
+    { VAAPI_VP8, "vaapivp8enc", "rtpvp8pay", "VP8" },
+    { CUSTOM_ENCODING, "", "", "" }
+};
+
+static Encoding encoderInfo(PREDEFINED_ENCODER encoder) {
+    for (Encoding const* it = KNOWN_ENCODERS; it->encoder != CUSTOM_ENCODING; ++it) {
+        if (it->encoder == encoder) {
+            return *it;
+        }
+    }
+    throw std::invalid_argument("no information for given encoder");
+}
+
+
 StreamerTask::StreamerTask(std::string const& name)
     : StreamerTaskBase(name)
 {
@@ -436,6 +460,14 @@ bool StreamerTask::configureHook()
         return false;
 
     frameDuration = base::Time::fromSeconds(1) / _fps.get();
+
+    auto userEncoding = _encoding.get();
+    if (userEncoding.encoder == CUSTOM_ENCODING) {
+        encoding = userEncoding;
+    }
+    else {
+        encoding = encoderInfo(userEncoding.encoder);
+    }
 
     serverPaused = true;
     gstThread = std::thread([this](){
@@ -469,6 +501,11 @@ bool StreamerTask::startHook()
     hasGstreamerError = false;
     queueIdleCallback(G_SOURCE_FUNC(resumeServerCallback));
     return true;
+}
+
+Encoding StreamerTask::getEncoding() const
+{
+    return encoding;
 }
 
 bool StreamerTask::serverIsPaused() const

@@ -123,8 +123,13 @@ namespace video_streamer_webrtc{
         void emitGstreamerError();
         bool serverIsPaused() const;
 
+        Encoding getEncoding() const;
+
     private:
         void init();
+
+        Encoding encoding;
+
         bool hasFrame = false;
         bool hasGstreamerError = false;
         bool serverPaused = true;

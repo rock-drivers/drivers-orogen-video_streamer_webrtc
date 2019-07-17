@@ -7,6 +7,7 @@ using_library 'gstreamer-app-1.0', typekit: false
 using_library 'libsoup-2.4', typekit: false
 using_library 'json-glib-1.0', typekit: false
 import_types_from 'base'
+import_types_from 'video_streamer_webrtcTypes.hpp'
 
 OroGen::Spec::Deployment.register_global_initializer(:gstreamer)
 if defined?(OroGen::Gen::RTT_CPP::Deployment)
@@ -41,6 +42,9 @@ task_context 'StreamerTask' do
 
     # The port on which the embedded server is listening
     property 'port', 'int', 57_778
+
+    # Encoding configuration (defaults to VP8)
+    property 'encoding', 'video_streamer_webrtc/Encoding'
 
     # The images to stream
     input_port 'images', ro_ptr('/base/samples/frame/Frame')
