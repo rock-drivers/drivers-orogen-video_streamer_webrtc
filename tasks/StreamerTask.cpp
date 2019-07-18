@@ -115,8 +115,8 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, Encoding const& 
     pipelineDefinition
         << "webrtcbin name=webrtcbin appsrc is-live=true name=src "
         << "! videoconvert "
-        << "! " << encoding.encoder_element
-        << "! " << encoding.payload_element
+        << "! " << encoding.encoder_element << " "
+        << "! " << encoding.payload_element << " "
         << "! application/x-rtp,media=video,encoding-name=" << encoding.encoder_name
         <<    ",payload=" << RTP_PAYLOAD_TYPE
         << "! webrtcbin.";
