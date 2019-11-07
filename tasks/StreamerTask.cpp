@@ -19,6 +19,10 @@
 #include <json-glib/json-glib.h>
 #include <string.h>
 
+#ifndef G_SOURCE_FUNC
+#define G_SOURCE_FUNC(f) ((GSourceFunc) (void (*)(void)) (f))
+#endif
+
 using namespace std;
 using namespace video_streamer_webrtc;
 
