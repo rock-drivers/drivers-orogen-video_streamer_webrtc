@@ -86,7 +86,7 @@
       window.onload = function() {
         var vidstream = document.getElementById("stream");
         var config = { 'iceServers': [] };
-        playStream(vidstream, 'localhost', 57778, null, config, function (errmsg) { console.error(errmsg); });
+        playStream(vidstream, 'localhost', 57000, null, config, function (errmsg) { console.error(errmsg); });
       };
 
     </script>
@@ -94,7 +94,7 @@
 
   <body>
     <div>
-      <video id="stream" autoplay>Your browser does not support video</video>
+      <video id="stream" muted="1" autoplay="1">Your browser does not support video</video>
     </div>
   </body>
 </html>

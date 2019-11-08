@@ -11,4 +11,6 @@
   <depend package="soup" />
   <depend package="json-glib" />
   <depend package="gstreamer-webrtc" />
+  <depend package="gstreamer-vaapi" />
+  <depend package="gstreamer-plugins-bad" />
 </package>

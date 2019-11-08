@@ -19,12 +19,16 @@
 #include <json-glib/json-glib.h>
 #include <string.h>
 
+#ifndef G_SOURCE_FUNC
+#define G_SOURCE_FUNC(f) ((GSourceFunc) (void (*)(void)) (f))
+#endif
+
 using namespace std;
 using namespace video_streamer_webrtc;
 
 #define RTP_PAYLOAD_TYPE "96"
 
-Receiver *create_receiver (SoupWebsocketConnection * connection);
+Receiver *create_receiver (SoupWebsocketConnection * connection, Encoding& encoding);
 
 GstPadProbeReturn payloader_caps_event_probe_cb (GstPad * pad,
     GstPadProbeInfo * info, gpointer user_data);
@@ -82,6 +86,7 @@ static void error_cb (GstBus *bus, GstMessage *msg, StreamerTask *task) {
     g_printerr ("Debugging information: %s\n", debug_info ? debug_info : "none");
     g_clear_error (&err);
     g_free (debug_info);
+    task->emitGstreamerError();
 }
 
 static GstVideoFormat frameModeToGSTFormat(base::samples::frame::frame_mode_t format) {
@@ -101,7 +106,7 @@ static GstVideoFormat frameModeToGSTFormat(base::samples::frame::frame_mode_t fo
     }
 }
 
-Receiver* create_receiver(SoupWebsocketConnection * connection)
+Receiver* create_receiver(SoupWebsocketConnection * connection, Encoding const& encoding)
 {
     unique_ptr<Receiver> receiver(new Receiver());
     receiver->connection = connection;
@@ -110,14 +115,22 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
     g_signal_connect (G_OBJECT (connection), "message",
         G_CALLBACK (soup_websocket_message_cb), (gpointer) receiver.get());
 
+    std::ostringstream pipelineDefinition;
+    pipelineDefinition
+        << "webrtcbin name=webrtcbin appsrc is-live=true name=src "
+        << "! videoconvert "
+        << "! " << encoding.encoder_element << " "
+        << "! " << encoding.payload_element << " "
+        << "! application/x-rtp,media=video,encoding-name=" << encoding.encoder_name
+        <<    ",payload=" << RTP_PAYLOAD_TYPE
+        << "! webrtcbin.";
+
+    std::cout << "Using pipeline: " << pipelineDefinition.str() << std::endl;
+
     GError* error = nullptr;
-    receiver->pipeline = gst_parse_launch ("webrtcbin name=webrtcbin "
-        "appsrc is-live=true name=src ! videoconvert ! vp8enc ! "
-        "rtpvp8pay max-ptime=500000000 !"
-        "application/x-rtp,media=video,encoding-name=VP8,payload="
-        RTP_PAYLOAD_TYPE " ! webrtcbin. ", &error);
+    receiver->pipeline = gst_parse_launch(pipelineDefinition.str().c_str(), &error);
     if (error) {
-        g_error ("Could not create WebRTC pipeline: %s\n", error->message);
+        g_warning ("Could not create WebRTC pipeline: %s\n", error->message);
         g_error_free (error);
         return nullptr;
     }
@@ -125,9 +138,11 @@ Receiver* create_receiver(SoupWebsocketConnection * connection)
     receiver->webrtcbin =
         gst_bin_get_by_name (GST_BIN (receiver->pipeline), "webrtcbin");
     g_assert (receiver->webrtcbin != NULL);
+    gst_object_ref(receiver->webrtcbin);
     receiver->appsrc =
         (GstAppSrc*)gst_bin_get_by_name (GST_BIN (receiver->pipeline), "src");
-    g_assert (receiver->webrtcbin != NULL);
+    g_assert (receiver->appsrc != NULL);
+    gst_object_ref(receiver->appsrc);
 
     g_signal_connect (receiver->webrtcbin, "on-negotiation-needed",
         G_CALLBACK (on_negotiation_needed_cb), (gpointer) receiver.get());
@@ -227,7 +242,7 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
     SoupWebsocketDataType data_type, GBytes * message, gpointer user_data)
 {
     gsize size;
-    gchar *data;
+    const gchar *data;
     gchar *data_string;
     const gchar *type_string;
     JsonNode *root_json;
@@ -238,19 +253,17 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
 
     switch (data_type) {
         case SOUP_WEBSOCKET_DATA_BINARY:
-        g_error ("Received unknown binary message, ignoring\n");
-        g_bytes_unref (message);
-        return;
+            g_error ("Received unknown binary message, ignoring\n");
+            return;
 
         case SOUP_WEBSOCKET_DATA_TEXT:
-        data = (char*)g_bytes_unref_to_data (message, &size);
-        /* Convert to NULL-terminated string */
-        data_string = g_strndup (data, size);
-        g_free (data);
-        break;
+            data = (char*)g_bytes_get_data(message, &size);
+            /* Convert to NULL-terminated string */
+            data_string = g_strndup (data, size);
+            break;
 
         default:
-        g_assert_not_reached ();
+            g_assert_not_reached ();
     }
 
     json_parser = json_parser_new ();
@@ -284,20 +297,20 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
         int ret;
 
         if (!json_object_has_member (data_json_object, "type")) {
-        g_error ("Received SDP message without type field\n");
-        goto cleanup;
+            g_error ("Received SDP message without type field\n");
+            goto cleanup;
         }
         sdp_type_string = json_object_get_string_member (data_json_object, "type");
 
         if (g_strcmp0 (sdp_type_string, "answer") != 0) {
-        g_error ("Expected SDP message type \"answer\", got \"%s\"\n",
-            sdp_type_string);
-        goto cleanup;
+            g_error ("Expected SDP message type \"answer\", got \"%s\"\n",
+                sdp_type_string);
+            goto cleanup;
         }
 
         if (!json_object_has_member (data_json_object, "sdp")) {
-        g_error ("Received SDP message without SDP string\n");
-        goto cleanup;
+            g_error ("Received SDP message without SDP string\n");
+            goto cleanup;
         }
         sdp_string = json_object_get_string_member (data_json_object, "sdp");
 
@@ -310,8 +323,8 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
             gst_sdp_message_parse_buffer ((guint8 *) sdp_string,
             strlen (sdp_string), sdp);
         if (ret != GST_SDP_OK) {
-        g_error ("Could not parse SDP string\n");
-        goto cleanup;
+            g_error ("Could not parse SDP string\n");
+            goto cleanup;
         }
 
         answer = gst_webrtc_session_description_new (GST_WEBRTC_SDP_TYPE_ANSWER,
@@ -328,15 +341,15 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
         const gchar *candidate_string;
 
         if (!json_object_has_member (data_json_object, "sdpMLineIndex")) {
-        g_error ("Received ICE message without mline index\n");
-        goto cleanup;
+            g_error ("Received ICE message without mline index\n");
+            goto cleanup;
         }
         mline_index =
             json_object_get_int_member (data_json_object, "sdpMLineIndex");
 
         if (!json_object_has_member (data_json_object, "candidate")) {
-        g_error ("Received ICE message without ICE candidate string\n");
-        goto cleanup;
+            g_error ("Received ICE message without ICE candidate string\n");
+            goto cleanup;
         }
         candidate_string = json_object_get_string_member (data_json_object,
             "candidate");
@@ -374,14 +387,21 @@ soup_websocket_handler (G_GNUC_UNUSED SoupServer * server,
     G_GNUC_UNUSED SoupClientContext * client_context, gpointer _task)
 {
     auto task = (StreamerTask*)_task;
+    if (task->serverIsPaused()) {
+        return;
+    }
+
     g_print ("Processing new websocket connection %p", (gpointer) connection);
     g_signal_connect (G_OBJECT (connection), "closed",
         G_CALLBACK (soup_websocket_closed_cb), task);
 
-    auto receiver = create_receiver (connection);
+    auto receiver = create_receiver (connection, task->getEncoding());
     if (receiver) {
         receiver->task = task;
         task->registerReceiver(receiver);
+    }
+    else {
+        task->emitGstreamerError();
     }
 }
 
@@ -404,33 +424,35 @@ get_string_from_json_object (JsonObject * object)
     return text;
 }
 
+const Encoding KNOWN_ENCODERS[] = {
+    { VP8, "vp8enc", "rtpvp8pay", "VP8" },
+    { VAAPI_VP8, "vaapivp8enc", "rtpvp8pay", "VP8" },
+    { CUSTOM_ENCODING, "", "", "" }
+};
+
+static Encoding encoderInfo(PREDEFINED_ENCODER encoder) {
+    for (Encoding const* it = KNOWN_ENCODERS; it->encoder != CUSTOM_ENCODING; ++it) {
+        if (it->encoder == encoder) {
+            return *it;
+        }
+    }
+    throw std::invalid_argument("no information for given encoder");
+}
+
+
 StreamerTask::StreamerTask(std::string const& name)
     : StreamerTaskBase(name)
 {
-    init();
 }
 
 StreamerTask::StreamerTask(std::string const& name, RTT::ExecutionEngine* engine)
     : StreamerTaskBase(name, engine)
 {
-    init();
 }
 
 StreamerTask::~StreamerTask()
 {
-    g_main_loop_unref (mainloop);
-    gst_deinit ();
 }
-
-void StreamerTask::init()
-{
-    setlocale (LC_ALL, "");
-    gst_init (&argc, (char***)&argv);
-    mainloop = g_main_loop_new (NULL, FALSE);
-    g_assert (mainloop != NULL);
-}
-
-
 
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See StreamerTask.hpp for more detailed
@@ -441,14 +463,38 @@ bool StreamerTask::configureHook()
     if (! StreamerTaskBase::configureHook())
         return false;
 
-    soup_server =
-        soup_server_new (SOUP_SERVER_SERVER_HEADER, "webrtc-soup-server", NULL);
-    soup_server_add_websocket_handler (soup_server, "/ws", NULL, NULL,
-        soup_websocket_handler, (gpointer) this, NULL);
-    soup_server_listen_all (soup_server, _port.get(),
-        (SoupServerListenOptions) 0, NULL);
-
     frameDuration = base::Time::fromSeconds(1) / _fps.get();
+
+    auto userEncoding = _encoding.get();
+    if (userEncoding.encoder == CUSTOM_ENCODING) {
+        encoding = userEncoding;
+    }
+    else {
+        encoding = encoderInfo(userEncoding.encoder);
+    }
+
+    serverPaused = true;
+    gstThread = std::thread([this](){
+        maincontext = g_main_context_new();
+        g_main_context_push_thread_default(maincontext);
+        mainloop = g_main_loop_new (maincontext, false);
+        g_assert (mainloop != NULL);
+
+        auto soup_server =
+            soup_server_new (SOUP_SERVER_SERVER_HEADER, "webrtc-soup-server", NULL);
+        soup_server_add_websocket_handler (soup_server, "/ws", NULL, NULL,
+            soup_websocket_handler, (gpointer) this, NULL);
+        soup_server_listen_all (soup_server, _port.get(),
+            (SoupServerListenOptions) 0, NULL);
+
+        g_main_loop_run(mainloop);
+
+        g_object_unref (G_OBJECT (soup_server));
+        g_main_loop_unref(mainloop);
+        g_main_context_unref(maincontext);
+        mainloop = nullptr;
+        maincontext = nullptr;
+    });
     return true;
 }
 bool StreamerTask::startHook()
@@ -456,28 +502,63 @@ bool StreamerTask::startHook()
     if (! StreamerTaskBase::startHook())
         return false;
     hasFrame = false;
-    gstThread = std::thread([this](){ g_main_loop_run(mainloop); });
+    hasGstreamerError = false;
+    queueIdleCallback(G_SOURCE_FUNC(resumeServerCallback));
     return true;
 }
 
-int pushPendingFramesIdleCallback(StreamerTask* task)
+Encoding StreamerTask::getEncoding() const
 {
-    task->pushPendingFrames();
-    return false;
+    return encoding;
+}
+
+bool StreamerTask::serverIsPaused() const
+{
+    return serverPaused;
+}
+
+void StreamerTask::resumeServer()
+{
+    serverPaused = false;
+}
+
+void StreamerTask::pauseServer()
+{
+    for (auto& entry : receivers) {
+        delete entry.second;
+    }
+    receivers.clear();
+    serverPaused = true;
+}
+
+void StreamerTask::emitGstreamerError()
+{
+    hasGstreamerError = true;
+}
+
+void StreamerTask::queueIdleCallback(GSourceFunc callback)
+{
+    auto source = g_idle_source_new();
+    g_source_set_callback(source, G_SOURCE_FUNC(callback), this, nullptr);
+    g_source_attach(source, maincontext);
+    g_source_unref(source);
 }
 
 void StreamerTask::updateHook()
 {
-    if (hasFrame)
+    if (hasGstreamerError)
     {
-        g_print("Got frame\n");
-        g_idle_add((GSourceFunc)pushPendingFramesIdleCallback, this);
+        exception(GSTREAMER_ERROR);
+    }
+    else if (hasFrame)
+    {
+        g_print("queueing frame callback\n");
+        queueIdleCallback(G_SOURCE_FUNC(pushPendingFramesCallback));
     }
     else if (waitFirstFrame())
     {
-        for (auto& receiver: receivers) {
-            startReceiver(*receiver.second);
-        }
+        g_print("queueing frame callback\n");
+        queueIdleCallback(G_SOURCE_FUNC(startReceiversCallback));
     }
 
     StreamerTaskBase::updateHook();
@@ -486,22 +567,17 @@ void StreamerTask::errorHook()
 {
     StreamerTaskBase::errorHook();
 }
+
+
 void StreamerTask::stopHook()
 {
-    for (auto& entry : receivers) {
-        gst_element_set_state(entry.second->pipeline, GST_STATE_PAUSED);
-    }
-    g_main_loop_quit(mainloop);
-    gstThread.join();
+    queueIdleCallback(G_SOURCE_FUNC(pauseServerCallback));
     StreamerTaskBase::stopHook();
 }
 void StreamerTask::cleanupHook()
 {
-    for (auto& entry : receivers) {
-        delete entry.second;
-    }
-    receivers.clear();
-    g_object_unref (G_OBJECT (soup_server));
+    g_main_loop_quit(mainloop);
+    gstThread.join();
     StreamerTaskBase::cleanupHook();
 }
 
@@ -515,6 +591,12 @@ void StreamerTask::registerReceiver(Receiver* receiver)
     else
         g_print("Waiting for first frame before starting %p\n", receiver->connection);
 
+}
+void StreamerTask::startReceivers()
+{
+    for (auto& receiver: receivers) {
+        startReceiver(*receiver.second);
+    }
 }
 void StreamerTask::startReceiver(Receiver& receiver)
 {
@@ -580,23 +662,15 @@ void StreamerTask::pushPendingFrames()
     RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> frame_ptr;
     while (_images.read(frame_ptr) == RTT::NewData)
     {
-        g_print("Pushing received frame\n");
+        g_print("Received frame ...\n");
         pushFrame(*frame_ptr);
     }
 }
 
 void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
 {
-    // Validate that width/height/format did not change
-    if (imageWidth != frame.getWidth()) {
-        LOG_ERROR_S << "Image width changed while playing" << std::endl;
-        return;
-    }
-    else if (imageHeight != frame.getHeight()) {
-        LOG_ERROR_S << "Image height changed while playing" << std::endl;
-        return;
-    }
-    else if (imageMode != frame.getFrameMode()) {
+    // Validate that format did not change
+    if (imageMode != frame.getFrameMode()) {
         LOG_ERROR_S << "Image mode changed while playing" << std::endl;
         return;
     }
@@ -634,7 +708,34 @@ void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
         if (current <= max) {
             g_print("appsrc buffer size: %lu/%lu\n", current, max);
             g_print("Pushing frame with dts %lu\n: ", GST_BUFFER_PTS(buffer));
-            ret = gst_app_src_push_buffer(receiver.second->appsrc, buffer);
+            ret = gst_app_src_push_buffer(receiver.second->appsrc,
+                                          gst_buffer_copy(buffer));
         }
     }
+    gst_buffer_unref(buffer);
+}
+
+
+int StreamerTask::pushPendingFramesCallback(StreamerTask* task)
+{
+    task->pushPendingFrames();
+    return false;
+}
+
+int StreamerTask::startReceiversCallback(StreamerTask* task)
+{
+    task->startReceivers();
+    return false;
+}
+
+int StreamerTask::resumeServerCallback(StreamerTask* task)
+{
+    task->resumeServer();
+    return false;
+}
+
+int StreamerTask::pauseServerCallback(StreamerTask* task)
+{
+    task->pauseServer();
+    return false;
 }

@@ -120,11 +120,19 @@ namespace video_streamer_webrtc{
         int getImageHeight() const;
         base::samples::frame::frame_mode_t getImageMode() const;
 
-        void pushPendingFrames();
+        void emitGstreamerError();
+        bool serverIsPaused() const;
+
+        Encoding getEncoding() const;
 
     private:
         void init();
+
+        Encoding encoding;
+
         bool hasFrame = false;
+        bool hasGstreamerError = false;
+        bool serverPaused = true;
         int imageWidth;
         int imageHeight;
         int imageByteSize;
@@ -135,8 +143,8 @@ namespace video_streamer_webrtc{
 
         int argc = 0;
         const char* argv[1] = { "webrtc-streamer "};
+        GMainContext *maincontext = nullptr;
         GMainLoop *mainloop = nullptr;
-        SoupServer *soup_server = nullptr;
 
         std::map<SoupWebsocketConnection*, Receiver*> receivers;
         void startReceiver(Receiver& receiver);
@@ -144,6 +152,18 @@ namespace video_streamer_webrtc{
         std::thread gstThread;
         bool waitFirstFrame();
         void pushFrame(base::samples::frame::Frame const& frame);
+
+        void resumeServer();
+        void pauseServer();
+        void pushPendingFrames();
+        void startReceivers();
+
+        static int pauseServerCallback(StreamerTask* task);
+        static int resumeServerCallback(StreamerTask* task);
+        static int pushPendingFramesCallback(StreamerTask* task);
+        static int startReceiversCallback(StreamerTask* task);
+
+        void queueIdleCallback(GSourceFunc callback);
     };
 }
 
