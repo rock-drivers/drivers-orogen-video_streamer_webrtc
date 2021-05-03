@@ -471,11 +471,17 @@ bool StreamerTask::configureHook()
     frameDuration = base::Time::fromSeconds(1) / _fps.get();
 
     auto userEncoding = _encoding.get();
-    if (userEncoding.encoder == CUSTOM_ENCODING) {
-        encoding = userEncoding;
-    }
-    else {
+    if (userEncoding.encoder != CUSTOM_ENCODING) {
         encoding = encoderInfo(userEncoding.encoder);
+    }
+    if (!userEncoding.encoder_element.empty()) {
+        encoding.encoder_element = userEncoding.encoder_element;
+    }
+    if (!userEncoding.payload_element.empty()) {
+        encoding.payload_element = userEncoding.payload_element;
+    }
+    if (!userEncoding.encoder_name.empty()) {
+        encoding.encoder_name = userEncoding.encoder_name;
     }
     encoding.mtu = userEncoding.mtu;
 
