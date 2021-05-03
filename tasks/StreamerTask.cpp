@@ -120,7 +120,12 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, Encoding const& 
         << "webrtcbin name=webrtcbin appsrc do-timestamp=TRUE is-live=true name=src "
         << "! videoconvert "
         << "! " << encoding.encoder_element << " "
-        << "! " << encoding.payload_element << " "
+        << "! " << encoding.payload_element << " ";
+    if (encoding.mtu) {
+        pipelineDefinition << "mtu=" << encoding.mtu << " ";
+    }
+
+    pipelineDefinition
         << "! application/x-rtp,media=video,encoding-name=" << encoding.encoder_name
         <<    ",payload=" << RTP_PAYLOAD_TYPE
         << "! webrtcbin.";
@@ -472,6 +477,7 @@ bool StreamerTask::configureHook()
     else {
         encoding = encoderInfo(userEncoding.encoder);
     }
+    encoding.mtu = userEncoding.mtu;
 
     serverPaused = true;
     gstThread = std::thread([this](){

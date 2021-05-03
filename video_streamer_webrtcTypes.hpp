@@ -30,6 +30,8 @@ namespace video_streamer_webrtc {
          * Only used if encoder is CUSTOM_ENCODING
          */
         std::string encoder_name;
+        /** MTU of the network link */
+        uint16_t mtu = 0;
     };
 }
 
