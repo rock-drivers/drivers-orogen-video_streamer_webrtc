@@ -432,6 +432,9 @@ get_string_from_json_object (JsonObject * object)
 const Encoding KNOWN_ENCODERS[] = {
     { VP8, "vp8enc", "rtpvp8pay", "VP8" },
     { VAAPI_VP8, "vaapivp8enc", "rtpvp8pay", "VP8" },
+    { H264, "x264enc", "rtph264pay", "H264" },
+    { VAAPI_H264, "vaapih264enc ! video/x-h264,profile=constrained-baseline",
+                  "rtph264pay", "H264" },
     { CUSTOM_ENCODING, "", "", "" }
 };
 

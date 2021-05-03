@@ -5,7 +5,7 @@
 
 namespace video_streamer_webrtc {
     enum PREDEFINED_ENCODER {
-        VP8, VAAPI_VP8, CUSTOM_ENCODING
+        VP8, VAAPI_VP8, H264, VAAPI_H264, CUSTOM_ENCODING
     };
 
     /** Definition of the underlying encoder to be used in the webrtc connections */
