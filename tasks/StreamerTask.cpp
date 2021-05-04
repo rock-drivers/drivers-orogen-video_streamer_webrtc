@@ -120,7 +120,12 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, Encoding const& 
         << "webrtcbin name=webrtcbin appsrc do-timestamp=TRUE is-live=true name=src "
         << "! videoconvert "
         << "! " << encoding.encoder_element << " "
-        << "! " << encoding.payload_element << " "
+        << "! " << encoding.payload_element << " ";
+    if (encoding.mtu) {
+        pipelineDefinition << "mtu=" << encoding.mtu << " ";
+    }
+
+    pipelineDefinition
         << "! application/x-rtp,media=video,encoding-name=" << encoding.encoder_name
         <<    ",payload=" << RTP_PAYLOAD_TYPE
         << "! webrtcbin.";
@@ -427,6 +432,9 @@ get_string_from_json_object (JsonObject * object)
 const Encoding KNOWN_ENCODERS[] = {
     { VP8, "vp8enc", "rtpvp8pay", "VP8" },
     { VAAPI_VP8, "vaapivp8enc", "rtpvp8pay", "VP8" },
+    { H264, "x264enc", "rtph264pay", "H264" },
+    { VAAPI_H264, "vaapih264enc ! video/x-h264,profile=constrained-baseline",
+                  "rtph264pay", "H264" },
     { CUSTOM_ENCODING, "", "", "" }
 };
 
@@ -466,12 +474,19 @@ bool StreamerTask::configureHook()
     frameDuration = base::Time::fromSeconds(1) / _fps.get();
 
     auto userEncoding = _encoding.get();
-    if (userEncoding.encoder == CUSTOM_ENCODING) {
-        encoding = userEncoding;
-    }
-    else {
+    if (userEncoding.encoder != CUSTOM_ENCODING) {
         encoding = encoderInfo(userEncoding.encoder);
     }
+    if (!userEncoding.encoder_element.empty()) {
+        encoding.encoder_element = userEncoding.encoder_element;
+    }
+    if (!userEncoding.payload_element.empty()) {
+        encoding.payload_element = userEncoding.payload_element;
+    }
+    if (!userEncoding.encoder_name.empty()) {
+        encoding.encoder_name = userEncoding.encoder_name;
+    }
+    encoding.mtu = userEncoding.mtu;
 
     serverPaused = true;
     gstThread = std::thread([this](){
@@ -552,12 +567,10 @@ void StreamerTask::updateHook()
     }
     else if (hasFrame)
     {
-        g_print("queueing frame callback\n");
         queueIdleCallback(G_SOURCE_FUNC(pushPendingFramesCallback));
     }
     else if (waitFirstFrame())
     {
-        g_print("queueing frame callback\n");
         queueIdleCallback(G_SOURCE_FUNC(startReceiversCallback));
     }
 
@@ -697,17 +710,15 @@ void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
 
     GST_BUFFER_DURATION(buffer) = frameDuration.toMicroseconds() * 1000;
 
-    GstFlowReturn ret;
-
-    for (auto receiver : receivers) {
+    for (auto const& receiver : receivers) {
         auto& appsrc = *(receiver.second->appsrc);
         auto current = gst_app_src_get_current_level_bytes(&appsrc);
         auto max     = gst_app_src_get_max_bytes(&appsrc);
         if (current <= max) {
-            g_print("appsrc buffer size: %lu/%lu\n", current, max);
-            g_print("Pushing frame with dts %lu\n: ", GST_BUFFER_PTS(buffer));
-            ret = gst_app_src_push_buffer(receiver.second->appsrc,
-                                          gst_buffer_copy(buffer));
+            gst_app_src_push_buffer(&appsrc, gst_buffer_copy(buffer));
+        }
+        else {
+            g_print("appsrc buffer full\n");
         }
     }
     gst_buffer_unref(buffer);
