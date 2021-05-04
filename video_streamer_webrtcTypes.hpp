@@ -2,6 +2,7 @@
 #define video_streamer_webrtc_TYPES_HPP
 
 #include <string>
+#include <stdint.h>
 
 namespace video_streamer_webrtc {
     enum PREDEFINED_ENCODER {
