@@ -117,7 +117,7 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, Encoding const& 
 
     std::ostringstream pipelineDefinition;
     pipelineDefinition
-        << "webrtcbin name=webrtcbin appsrc is-live=true name=src "
+        << "webrtcbin name=webrtcbin appsrc do-timestamp=TRUE is-live=true name=src "
         << "! videoconvert "
         << "! " << encoding.encoder_element << " "
         << "! " << encoding.payload_element << " "
@@ -695,8 +695,6 @@ void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
     if (baseTime.isNull())
         baseTime = nextFrameTime;
 
-    GST_BUFFER_PTS(buffer) = (nextFrameTime - baseTime).toMicroseconds() * 1000;
-    GST_BUFFER_DTS(buffer) = GST_CLOCK_TIME_NONE;
     GST_BUFFER_DURATION(buffer) = frameDuration.toMicroseconds() * 1000;
 
     GstFlowReturn ret;
