@@ -683,9 +683,7 @@ void StreamerTask::configureFrameParameters(base::samples::frame::Frame const& f
 void StreamerTask::pushPendingFrames()
 {
     RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> frame_ptr;
-    while (_images.read(frame_ptr) == RTT::NewData)
-    {
-        g_print("Received frame ...\n");
+    while (_images.read(frame_ptr) == RTT::NewData) {
         pushFrame(*frame_ptr);
     }
 }
