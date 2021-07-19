@@ -584,6 +584,7 @@ void StreamerTask::errorHook()
 
 void StreamerTask::stopHook()
 {
+    clearAllReceivers();
     queueIdleCallback(G_SOURCE_FUNC(pauseServerCallback));
     StreamerTaskBase::stopHook();
 }
@@ -638,6 +639,12 @@ void StreamerTask::deregisterReceiver(SoupWebsocketConnection* connection)
         receivers.erase(it);
     }
 }
+void StreamerTask::clearAllReceivers() {
+    while (!receivers.empty()) {
+        delete receivers.begin()->second;
+        receivers.erase(receivers.begin());
+    }
+}
 
 int StreamerTask::getImageWidth() const
 {
@@ -661,21 +668,22 @@ bool StreamerTask::waitFirstFrame()
         return false;
 
     hasFrame = true;
-    imageWidth = frame_ptr->getWidth();
-    imageHeight = frame_ptr->getHeight();
-    imageMode = frame_ptr->getFrameMode();
-    imageByteSize = frame_ptr->image.size();
+    configureFrameParameters(*frame_ptr);
     nextFrameTime = frame_ptr->time;
 
     return true;
 }
 
+void StreamerTask::configureFrameParameters(base::samples::frame::Frame const& frame) {
+    imageWidth = frame.getWidth();
+    imageHeight = frame.getHeight();
+    imageMode = frame.getFrameMode();
+    imageByteSize = frame.image.size();
+}
 void StreamerTask::pushPendingFrames()
 {
     RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> frame_ptr;
-    while (_images.read(frame_ptr) == RTT::NewData)
-    {
-        g_print("Received frame ...\n");
+    while (_images.read(frame_ptr) == RTT::NewData) {
         pushFrame(*frame_ptr);
     }
 }
@@ -683,9 +691,12 @@ void StreamerTask::pushPendingFrames()
 void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
 {
     // Validate that format did not change
-    if (imageMode != frame.getFrameMode()) {
-        LOG_ERROR_S << "Image mode changed while playing" << std::endl;
-        return;
+    if (imageMode != frame.getFrameMode() || imageWidth != frame.getWidth() ||
+        imageHeight != frame.getHeight()) {
+        LOG_ERROR_S << "Image parameter(s) changed while playing, "\
+                       "closing connection(s)" << std::endl;
+        configureFrameParameters(frame);
+        clearAllReceivers();
     }
 
     auto time = frame.time;

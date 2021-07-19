@@ -148,6 +148,8 @@ namespace video_streamer_webrtc{
 
         std::map<SoupWebsocketConnection*, Receiver*> receivers;
         void startReceiver(Receiver& receiver);
+        void configureFrameParameters(base::samples::frame::Frame const& frame);
+        void clearAllReceivers();
 
         std::thread gstThread;
         bool waitFirstFrame();
