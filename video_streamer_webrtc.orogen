@@ -46,6 +46,9 @@ task_context 'StreamerTask' do
     # Encoding configuration (defaults to VP8)
     property 'encoding', 'video_streamer_webrtc/Encoding'
 
+    # STUN server (e.g. stun://10.128.0.1:3478)
+    property 'stun_server', 'string'
+
     # The images to stream
     input_port 'images', ro_ptr('/base/samples/frame/Frame')
 
