@@ -28,7 +28,7 @@ using namespace video_streamer_webrtc;
 
 #define RTP_PAYLOAD_TYPE "96"
 
-Receiver *create_receiver (SoupWebsocketConnection * connection, Encoding& encoding);
+Receiver *create_receiver(SoupWebsocketConnection * connection, StreamerTask& task);
 
 GstPadProbeReturn payloader_caps_event_probe_cb (GstPad * pad,
     GstPadProbeInfo * info, gpointer user_data);
@@ -106,7 +106,7 @@ static GstVideoFormat frameModeToGSTFormat(base::samples::frame::frame_mode_t fo
     }
 }
 
-Receiver* create_receiver(SoupWebsocketConnection * connection, Encoding const& encoding)
+Receiver* create_receiver(SoupWebsocketConnection * connection, StreamerTask& task)
 {
     unique_ptr<Receiver> receiver(new Receiver());
     receiver->connection = connection;
@@ -115,6 +115,7 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, Encoding const& 
     g_signal_connect (G_OBJECT (connection), "message",
         G_CALLBACK (soup_websocket_message_cb), (gpointer) receiver.get());
 
+    auto encoding = task.getEncoding();
     std::ostringstream pipelineDefinition;
     pipelineDefinition
         << "webrtcbin name=webrtcbin appsrc do-timestamp=TRUE is-live=true name=src "
@@ -142,6 +143,12 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, Encoding const& 
 
     receiver->webrtcbin =
         gst_bin_get_by_name (GST_BIN (receiver->pipeline), "webrtcbin");
+
+    auto stun_server = task.getSTUNServer();
+    if (!stun_server.empty()) {
+        g_object_set(receiver->webrtcbin, "stun-server", stun_server.c_str(), NULL);
+    }
+
     g_assert (receiver->webrtcbin != NULL);
     gst_object_ref(receiver->webrtcbin);
     receiver->appsrc =
@@ -400,7 +407,7 @@ soup_websocket_handler (G_GNUC_UNUSED SoupServer * server,
     g_signal_connect (G_OBJECT (connection), "closed",
         G_CALLBACK (soup_websocket_closed_cb), task);
 
-    auto receiver = create_receiver (connection, task->getEncoding());
+    auto receiver = create_receiver(connection, *task);
     if (receiver) {
         receiver->task = task;
         task->registerReceiver(receiver);
@@ -520,6 +527,11 @@ bool StreamerTask::startHook()
     hasGstreamerError = false;
     queueIdleCallback(G_SOURCE_FUNC(resumeServerCallback));
     return true;
+}
+
+string StreamerTask::getSTUNServer() const
+{
+    return _stun_server.get();
 }
 
 Encoding StreamerTask::getEncoding() const

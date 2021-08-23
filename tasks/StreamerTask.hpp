@@ -123,6 +123,7 @@ namespace video_streamer_webrtc{
         void emitGstreamerError();
         bool serverIsPaused() const;
 
+        std::string getSTUNServer() const;
         Encoding getEncoding() const;
 
     private:
