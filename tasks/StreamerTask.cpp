@@ -16,7 +16,7 @@
 #include <gst/webrtc/webrtc.h>
 
 #include <libsoup/soup.h>
-#include <json-glib/json-glib.h>
+#include <json/json.h>
 #include <string.h>
 
 #ifndef G_SOURCE_FUNC
@@ -46,7 +46,6 @@ void soup_websocket_closed_cb (SoupWebsocketConnection * connection,
 void soup_http_handler (SoupServer * soup_server, SoupMessage * message,
     const char *path, GHashTable * query, SoupClientContext * client_context,
     gpointer user_data);
-static gchar *get_string_from_json_object (JsonObject * object);
 
 struct video_streamer_webrtc::Receiver
 {
@@ -173,43 +172,32 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, StreamerTask& ta
 void
 on_offer_created_cb (GstPromise * promise, gpointer user_data)
 {
-    gchar *sdp_string;
-    gchar *json_string;
-    JsonObject *sdp_json;
-    JsonObject *sdp_data_json;
-    GstStructure const *reply;
-    GstPromise *local_desc_promise;
-    GstWebRTCSessionDescription *offer = NULL;
     Receiver *receiver = (Receiver *) user_data;
-
-    reply = gst_promise_get_reply (promise);
-    gst_structure_get (reply, "offer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION,
-        &offer, NULL);
+    GstStructure const* reply = gst_promise_get_reply (promise);
+    GstWebRTCSessionDescription *offer = NULL;
+    gst_structure_get (reply, "offer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &offer, NULL);
     gst_promise_unref (promise);
 
-    local_desc_promise = gst_promise_new ();
+    GstPromise* local_desc_promise = gst_promise_new ();
     g_signal_emit_by_name (receiver->webrtcbin, "set-local-description",
         offer, local_desc_promise);
     gst_promise_interrupt (local_desc_promise);
     gst_promise_unref (local_desc_promise);
 
-    sdp_string = gst_sdp_message_as_text (offer->sdp);
+    gchar* sdp_string = gst_sdp_message_as_text (offer->sdp);
     g_print ("Negotiation offer created:\n%s\n", sdp_string);
 
-    sdp_json = json_object_new ();
-    json_object_set_string_member (sdp_json, "type", "sdp");
+    Json::Value sdp_data;
+    sdp_data["type"] = "offer";
+    sdp_data["sdp"] = sdp_string;
 
-    sdp_data_json = json_object_new ();
-    json_object_set_string_member (sdp_data_json, "type", "offer");
-    json_object_set_string_member (sdp_data_json, "sdp", sdp_string);
-    json_object_set_object_member (sdp_json, "data", sdp_data_json);
+    Json::Value sdp;
+    sdp["type"] = "sdp";
+    sdp["data"] = sdp_data;
 
-    json_string = get_string_from_json_object (sdp_json);
-    json_object_unref (sdp_json);
-
-    soup_websocket_connection_send_text (receiver->connection, json_string);
-    g_free (json_string);
-
+    Json::FastWriter writer;
+    string json_string = writer.write(sdp);
+    soup_websocket_connection_send_text (receiver->connection, json_string.c_str());
     gst_webrtc_session_description_free (offer);
 }
 
@@ -229,160 +217,137 @@ void on_negotiation_needed_cb (GstElement * webrtcbin, gpointer user_data)
 void on_ice_candidate_cb (G_GNUC_UNUSED GstElement * webrtcbin, guint mline_index,
     gchar * candidate, gpointer user_data)
 {
-    JsonObject *ice_json;
-    JsonObject *ice_data_json;
-    gchar *json_string;
     Receiver *receiver = (Receiver *) user_data;
 
-    ice_json = json_object_new ();
-    json_object_set_string_member (ice_json, "type", "ice");
+    Json::Value ice_data;
+    ice_data["sdpMLineIndex"] = mline_index;
+    ice_data["candidate"] = candidate;
 
-    ice_data_json = json_object_new ();
-    json_object_set_int_member (ice_data_json, "sdpMLineIndex", mline_index);
-    json_object_set_string_member (ice_data_json, "candidate", candidate);
-    json_object_set_object_member (ice_json, "data", ice_data_json);
+    Json::Value ice;
+    ice["type"] = "ice";
+    ice["data"] = ice_data;
 
-    json_string = get_string_from_json_object (ice_json);
-    json_object_unref (ice_json);
-
-    soup_websocket_connection_send_text (receiver->connection, json_string);
-    g_free (json_string);
+    Json::FastWriter writer;
+    string json_string = writer.write(ice);
+    soup_websocket_connection_send_text (receiver->connection, json_string.c_str());
 }
+
+void handleSDPMessage(Receiver* receiver, Json::Value data);
+void handleICEMessage(Receiver* receiver, Json::Value data);
 
 void
 soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
     SoupWebsocketDataType data_type, GBytes * message, gpointer user_data)
 {
-    gsize size;
-    const gchar *data;
-    gchar *data_string;
-    const gchar *type_string;
-    JsonNode *root_json;
-    JsonObject *root_json_object;
-    JsonObject *data_json_object;
-    JsonParser *json_parser = NULL;
     Receiver *receiver = (Receiver *) user_data;
 
+    Json::Value json;
     switch (data_type) {
         case SOUP_WEBSOCKET_DATA_BINARY:
-            g_error ("Received unknown binary message, ignoring\n");
+            LOG_ERROR_S << "Received unknown binary message, ignoring" << std::endl;
             return;
 
         case SOUP_WEBSOCKET_DATA_TEXT:
-            data = (char*)g_bytes_get_data(message, &size);
-            /* Convert to NULL-terminated string */
-            data_string = g_strndup (data, size);
+            {
+                gsize size;
+                char* gdata = (char*)g_bytes_get_data(message, &size);
+                Json::CharReaderBuilder rbuilder;
+                std::unique_ptr<Json::CharReader> const reader(rbuilder.newCharReader());
+
+                string errors;
+                if (!reader->parse(gdata, gdata + size, &json, &errors)) {
+                    LOG_ERROR_S << "invalid document received " << errors << std::endl;
+                    return;
+                }
+            }
             break;
 
         default:
             g_assert_not_reached ();
     }
 
-    json_parser = json_parser_new ();
-    if (!json_parser_load_from_data (json_parser, data_string, -1, NULL))
-        goto unknown_message;
-
-    root_json = json_parser_get_root (json_parser);
-    if (!JSON_NODE_HOLDS_OBJECT (root_json))
-        goto unknown_message;
-
-    root_json_object = json_node_get_object (root_json);
-
-    if (!json_object_has_member (root_json_object, "type")) {
-        g_error ("Received message without type field\n");
-        goto cleanup;
+    if (json["type"].isNull()) {
+        LOG_ERROR_S << "signalling message without type field, ignored" << std::endl;
+        return;
     }
-    type_string = json_object_get_string_member (root_json_object, "type");
+    string type = json["type"].asString();
 
-    if (!json_object_has_member (root_json_object, "data")) {
-        g_error ("Received message without data field\n");
-        goto cleanup;
+    if (json["data"].isNull()) {
+        LOG_ERROR_S << "signalling message of type " << type
+                    << " without type field, ignored" << std::endl;
+        return;
     }
-    data_json_object = json_object_get_object_member (root_json_object, "data");
+    Json::Value data = json["data"];
 
-    if (g_strcmp0 (type_string, "sdp") == 0) {
-        const gchar *sdp_type_string;
-        const gchar *sdp_string;
-        GstPromise *promise;
-        GstSDPMessage *sdp;
-        GstWebRTCSessionDescription *answer;
-        int ret;
+    if (type == "sdp") {
+        handleSDPMessage(receiver, data);
+    } else if (type == "ice") {
+        handleICEMessage(receiver, data);
+    } else {
+        Json::FastWriter writer;
+        LOG_ERROR_S
+            << "Unknown JSON message received on signalling channel:\n"
+            << writer.write(data) << std::endl;
+    }
+}
 
-        if (!json_object_has_member (data_json_object, "type")) {
-            g_error ("Received SDP message without type field\n");
-            goto cleanup;
-        }
-        sdp_type_string = json_object_get_string_member (data_json_object, "type");
+void handleSDPMessage(Receiver* receiver, Json::Value data) {
+    if (data["type"].isNull()) {
+        LOG_ERROR_S << "received SDP message without a 'type' field" << std::endl;
+        return;
+    }
 
-        if (g_strcmp0 (sdp_type_string, "answer") != 0) {
-            g_error ("Expected SDP message type \"answer\", got \"%s\"\n",
-                sdp_type_string);
-            goto cleanup;
-        }
+    string type = data["type"].asString();
+    if (type != "answer") {
+        LOG_ERROR_S << "expected SDP message of type 'answer', but got " << type << std::endl;
+        return;
+    }
 
-        if (!json_object_has_member (data_json_object, "sdp")) {
-            g_error ("Received SDP message without SDP string\n");
-            goto cleanup;
-        }
-        sdp_string = json_object_get_string_member (data_json_object, "sdp");
+    if (data["sdp"].isNull()) {
+        LOG_ERROR_S << "received SDP message without SDP field" << std::endl;
+        return;
+    }
+    string sdp = data["sdp"].asString();
+    LOG_INFO_S << "received SDP: " << sdp << std::endl;
 
-        g_print ("Received SDP:\n%s\n", sdp_string);
+    GstSDPMessage* sdpMsg;
+    int ret = gst_sdp_message_new(&sdpMsg);
+    g_assert_cmphex (ret, ==, GST_SDP_OK);
+    ret = gst_sdp_message_parse_buffer ((guint8 *)sdp.c_str(), sdp.size(), sdpMsg);
+    if (ret != GST_SDP_OK) {
+        LOG_ERROR_S << "could not parse SDP string: " << sdp << std::endl;
+        return;
+    }
 
-        ret = gst_sdp_message_new (&sdp);
-        g_assert_cmphex (ret, ==, GST_SDP_OK);
+    GstWebRTCSessionDescription *answer =
+        gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_ANSWER, sdpMsg);
+    g_assert_nonnull (answer);
 
-        ret =
-            gst_sdp_message_parse_buffer ((guint8 *) sdp_string,
-            strlen (sdp_string), sdp);
-        if (ret != GST_SDP_OK) {
-            g_error ("Could not parse SDP string\n");
-            goto cleanup;
-        }
+    GstPromise *promise = gst_promise_new();
+    g_signal_emit_by_name (
+        receiver->webrtcbin, "set-remote-description", answer, promise
+    );
+    gst_promise_interrupt (promise);
+    gst_promise_unref (promise);
+}
 
-        answer = gst_webrtc_session_description_new (GST_WEBRTC_SDP_TYPE_ANSWER,
-            sdp);
-        g_assert_nonnull (answer);
+void handleICEMessage(Receiver* receiver, Json::Value data) {
+    if (data["sdpMLineIndex"].isNull()) {
+        g_error ("Received ICE message without mline index\n");
+        return;
+    }
+    guint mline_index = data["sdpMLineIndex"].asLargestUInt();
 
-        promise = gst_promise_new ();
-        g_signal_emit_by_name (receiver->webrtcbin, "set-remote-description",
-            answer, promise);
-        gst_promise_interrupt (promise);
-        gst_promise_unref (promise);
-    } else if (g_strcmp0 (type_string, "ice") == 0) {
-        guint mline_index;
-        const gchar *candidate_string;
+    if (data["candidate"].isNull()) {
+        g_error ("Received ICE message without ICE candidate string\n");
+        return;
+    }
+    string candidate = data["candidate"].asString();
+    g_print ("Received ICE candidate with mline index %u; candidate: %s\n",
+        mline_index, candidate.c_str());
 
-        if (!json_object_has_member (data_json_object, "sdpMLineIndex")) {
-            g_error ("Received ICE message without mline index\n");
-            goto cleanup;
-        }
-        mline_index =
-            json_object_get_int_member (data_json_object, "sdpMLineIndex");
-
-        if (!json_object_has_member (data_json_object, "candidate")) {
-            g_error ("Received ICE message without ICE candidate string\n");
-            goto cleanup;
-        }
-        candidate_string = json_object_get_string_member (data_json_object,
-            "candidate");
-
-        g_print ("Received ICE candidate with mline index %u; candidate: %s\n",
-            mline_index, candidate_string);
-
-        g_signal_emit_by_name (receiver->webrtcbin, "add-ice-candidate",
-            mline_index, candidate_string);
-    } else
-        goto unknown_message;
-
-cleanup:
-    if (json_parser != NULL)
-        g_object_unref (G_OBJECT (json_parser));
-    g_free (data_string);
-    return;
-
-unknown_message:
-    g_error ("Unknown message \"%s\", ignoring", data_string);
-    goto cleanup;
+    g_signal_emit_by_name(receiver->webrtcbin, "add-ice-candidate",
+        mline_index, candidate.c_str());
 }
 
 void
@@ -415,25 +380,6 @@ soup_websocket_handler (G_GNUC_UNUSED SoupServer * server,
     else {
         task->emitGstreamerError();
     }
-}
-
-static gchar *
-get_string_from_json_object (JsonObject * object)
-{
-    JsonNode *root;
-    JsonGenerator *generator;
-    gchar *text;
-
-    /* Make it the root node */
-    root = json_node_init_object (json_node_alloc (), object);
-    generator = json_generator_new ();
-    json_generator_set_root (generator, root);
-    text = json_generator_to_data (generator, NULL);
-
-    /* Release everything */
-    g_object_unref (generator);
-    json_node_free (root);
-    return text;
 }
 
 const Encoding KNOWN_ENCODERS[] = {
