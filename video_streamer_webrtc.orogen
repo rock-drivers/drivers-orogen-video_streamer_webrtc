@@ -1,13 +1,15 @@
-name 'video_streamer_webrtc'
+# frozen_string_literal: true
 
-using_library 'base-logging', typekit: false
-using_library 'gstreamer-webrtc-1.0', typekit: false
-using_library 'gstreamer-video-1.0', typekit: false
-using_library 'gstreamer-app-1.0', typekit: false
-using_library 'libsoup-2.4', typekit: false
-using_library 'json-glib-1.0', typekit: false
-import_types_from 'base'
-import_types_from 'video_streamer_webrtcTypes.hpp'
+name "video_streamer_webrtc"
+
+using_library "base-logging", typekit: false
+using_library "gstreamer-webrtc-1.0", typekit: false
+using_library "gstreamer-video-1.0", typekit: false
+using_library "gstreamer-app-1.0", typekit: false
+using_library "libsoup-2.4", typekit: false
+using_library "json-glib-1.0", typekit: false
+import_types_from "base"
+import_types_from "video_streamer_webrtcTypes.hpp"
 
 OroGen::Spec::Deployment.register_global_initializer(:gstreamer)
 if defined?(OroGen::Gen::RTT_CPP::Deployment)
@@ -32,27 +34,27 @@ if defined?(OroGen::Gen::RTT_CPP::Deployment)
     )
 end
 
-task_context 'StreamerTask' do
+task_context "StreamerTask" do
     needs_configuration
 
     needs_global_initializer :gstreamer
 
     # The target fps
-    property 'fps', 'int', 25
+    property "fps", "int", 25
 
     # The port on which the embedded server is listening
-    property 'port', 'int', 57_778
+    property "port", "int", 57_778
 
     # Encoding configuration (defaults to VP8)
-    property 'encoding', 'video_streamer_webrtc/Encoding'
+    property "encoding", "video_streamer_webrtc/Encoding"
 
     # STUN server (e.g. stun://10.128.0.1:3478)
-    property 'stun_server', 'string'
+    property "stun_server", "string"
 
     # The images to stream
-    input_port 'images', ro_ptr('/base/samples/frame/Frame')
+    input_port "images", ro_ptr("/base/samples/frame/Frame")
 
     port_driven
 
-    exception_states 'GSTREAMER_ERROR'
+    exception_states "GSTREAMER_ERROR"
 end
