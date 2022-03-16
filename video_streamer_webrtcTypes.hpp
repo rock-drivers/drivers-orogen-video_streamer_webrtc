@@ -38,18 +38,35 @@ namespace video_streamer_webrtc {
         uint16_t mtu = 0;
     };
 
+    /** Statistics on inbound video streams
+     *
+     * This is sent by our client(s) and logged here
+     */
     struct InboundStreamStatistics {
+        /** Bytes received so far */
         uint64_t rx_bytes = 0;
+        /** How many packets got discarded because of error correction */
         uint64_t packets_discarded_error_correction = 0;
+        /** How many packets have been received */
         uint64_t packets_received = 0;
+        /** How many duplicate packets have been received */
         uint64_t packets_duplicated = 0;
+        /** How many frames have been decoded */
         uint64_t frames_decoded = 0;
 
+        /** Timestamp of the last packet received */
         base::Time last_packet_received_timestamp;
 
+        /** How many indicators for "picture loss" were sent by the client back
+         * to us */
         uint64_t picture_loss_indicators_sent = 0;
+        /** How many indicators for "slice loss" were sent by the client back to
+         * us */
         uint64_t slice_loss_indicators_sent = 0;
+        /** How many I frame request were sent by the client back to us because
+         * of frame loss */
         uint64_t full_infra_requests_sent = 0;
+        /** How many NACKs have been sent by the client back to us */
         uint64_t nack_sent = 0;
     };
 
