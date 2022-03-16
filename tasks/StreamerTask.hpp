@@ -158,6 +158,7 @@ namespace video_streamer_webrtc{
 
         void resumeServer();
         void pauseServer();
+        void publishStats();
         void pushPendingFrames();
         void startReceivers();
 
@@ -165,6 +166,7 @@ namespace video_streamer_webrtc{
         static int resumeServerCallback(StreamerTask* task);
         static int pushPendingFramesCallback(StreamerTask* task);
         static int startReceiversCallback(StreamerTask* task);
+        static int publishStatsCallback(StreamerTask* task);
 
         void queueIdleCallback(GSourceFunc callback);
     };

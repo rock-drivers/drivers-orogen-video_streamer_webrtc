@@ -32,6 +32,20 @@
 
       function onAddRemoteStream(event) {
         html5VideoElement.srcObject = event.streams[0];
+
+        let intervalToken = setInterval(
+          async () => {
+            let stats = await webrtcPeerConnection.getStats();
+            if (websocketConnection.readyState == 3) {
+                clearInterval(intervalToken);
+            }
+            else {
+                let array = []
+                stats.forEach((s) => array.push(s))
+                websocketConnection.send(JSON.stringify({ "type": "stats", "data": array }));
+            }
+          }, 1000
+        )
       }
 
 

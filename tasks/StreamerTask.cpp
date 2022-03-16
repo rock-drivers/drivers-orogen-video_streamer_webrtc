@@ -57,6 +57,8 @@ struct video_streamer_webrtc::Receiver
     GstElement *webrtcbin = nullptr;
     GstAppSrc *appsrc = nullptr;
 
+    ClientStatistics stats;
+
     Receiver() {}
     Receiver(Receiver const&) = delete;
 
@@ -133,7 +135,7 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, StreamerTask& ta
     LOG_INFO_S << "using pipeline: " << pipelineDefinition.str() << std::endl;
 
     GError* error = nullptr;
-    receiver->pipeline = gst_parse_launch(pipelineDefinition.str().c_str(), &error);
+    GstElement* pipeline = gst_parse_launch(pipelineDefinition.str().c_str(), &error);
     if (error) {
         LOG_ERROR_S << "could not create WebRTC pipeline: "
                     << error->message << std::endl;
@@ -141,29 +143,29 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, StreamerTask& ta
         return nullptr;
     }
 
+    receiver->pipeline = pipeline;
     receiver->webrtcbin =
         gst_bin_get_by_name (GST_BIN (receiver->pipeline), "webrtcbin");
+    g_assert (receiver->webrtcbin != NULL);
+    receiver->appsrc =
+        (GstAppSrc*)gst_bin_get_by_name (GST_BIN (receiver->pipeline), "src");
+    g_assert (receiver->appsrc != NULL);
 
     auto stun_server = task.getSTUNServer();
     if (!stun_server.empty()) {
         g_object_set(receiver->webrtcbin, "stun-server", stun_server.c_str(), NULL);
     }
-
-    g_assert (receiver->webrtcbin != NULL);
     gst_object_ref(receiver->webrtcbin);
-    receiver->appsrc =
-        (GstAppSrc*)gst_bin_get_by_name (GST_BIN (receiver->pipeline), "src");
-    g_assert (receiver->appsrc != NULL);
     gst_object_ref(receiver->appsrc);
 
-    g_signal_connect (receiver->webrtcbin, "on-negotiation-needed",
+    g_signal_connect(receiver->webrtcbin, "on-negotiation-needed",
         G_CALLBACK (on_negotiation_needed_cb), (gpointer) receiver.get());
-    g_signal_connect (receiver->webrtcbin, "on-ice-candidate",
+    g_signal_connect(receiver->webrtcbin, "on-ice-candidate",
         G_CALLBACK (on_ice_candidate_cb), (gpointer) receiver.get());
 
     auto bus = gst_element_get_bus (receiver->pipeline);
     gst_bus_add_signal_watch (bus);
-    g_signal_connect (G_OBJECT (bus), "message::error", (GCallback)error_cb,
+    g_signal_connect(G_OBJECT (bus), "message::error", (GCallback)error_cb,
         receiver->task);
     gst_object_unref (bus);
 
@@ -233,8 +235,10 @@ void on_ice_candidate_cb (G_GNUC_UNUSED GstElement * webrtcbin, guint mline_inde
     soup_websocket_connection_send_text (receiver->connection, json_string.c_str());
 }
 
-void handleSDPMessage(Receiver* receiver, Json::Value data);
-void handleICEMessage(Receiver* receiver, Json::Value data);
+static void handleSDPMessage(Receiver* receiver, Json::Value data);
+static void handleICEMessage(Receiver* receiver, Json::Value data);
+static void handleStatsMessage(Receiver* receiver, Json::Value data);
+static InboundStreamStatistics parseInboundStreamStatistics(Json::Value data);
 
 void
 soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
@@ -284,6 +288,8 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
         handleSDPMessage(receiver, data);
     } else if (type == "ice") {
         handleICEMessage(receiver, data);
+    } else if (type == "stats") {
+        handleStatsMessage(receiver, data);
     } else {
         Json::FastWriter writer;
         LOG_ERROR_S
@@ -349,6 +355,60 @@ void handleICEMessage(Receiver* receiver, Json::Value data) {
 
     g_signal_emit_by_name(receiver->webrtcbin, "add-ice-candidate",
         mline_index, candidate.c_str());
+}
+
+void handleStatsMessage(Receiver* receiver, Json::Value data) {
+    ClientStatistics stats;
+    stats.time = base::Time::now();
+
+    for (unsigned int i = 0; i < data.size(); ++i) {
+        if (data[i].get("type", "").asString() == "inbound-rtp") {
+            stats.inbound_stream_statistics.push_back(
+                parseInboundStreamStatistics(data[i])
+            );
+        }
+    }
+
+    receiver->stats = stats;
+}
+
+template<typename T> T jsonConvert(Json::Value const& value);
+template<> string jsonConvert<string>(Json::Value const& value) {
+    return value.asString();
+}
+template<> double jsonConvert<double>(Json::Value const& value) {
+    return value.asDouble();
+}
+template<> float jsonConvert<float>(Json::Value const& value) {
+    return value.asFloat();
+}
+template<> uint64_t jsonConvert<uint64_t>(Json::Value const& value) {
+    return value.asLargestUInt();
+}
+
+template<typename T>
+void jsonRead(T& field, Json::Value& json, string const& fieldName) {
+    if (json[fieldName].isNull()) {
+        return;
+    }
+
+    field = jsonConvert<T>(json[fieldName]);
+}
+
+InboundStreamStatistics parseInboundStreamStatistics(Json::Value data) {
+    InboundStreamStatistics ret;
+    jsonRead(ret.rx_bytes, data, "bytesReceived");
+    jsonRead(ret.packets_discarded_error_correction, data, "fecPacketsDiscarded");
+    jsonRead(ret.packets_received, data, "fecPacketsReceived");
+    jsonRead(ret.packets_duplicated, data, "packetsDuplicated");
+    jsonRead(ret.frames_decoded, data, "framesDecoded");
+
+    double last_packet_received_timestamp;
+    jsonRead(last_packet_received_timestamp, data, "lastPacketReceivedTimestamp");
+    ret.last_packet_received_timestamp =
+        base::Time::fromSeconds(last_packet_received_timestamp / 1000);
+
+    return ret;
 }
 
 void
@@ -486,6 +546,17 @@ Encoding StreamerTask::getEncoding() const
     return encoding;
 }
 
+void StreamerTask::publishStats()
+{
+    std::vector<ClientStatistics> stats;
+    for (auto& entry : receivers) {
+        stats.push_back(entry.second->stats);
+    }
+
+    _client_statistics.write(stats);
+}
+
+
 bool StreamerTask::serverIsPaused() const
 {
     return serverPaused;
@@ -533,6 +604,7 @@ void StreamerTask::updateHook()
         queueIdleCallback(G_SOURCE_FUNC(startReceiversCallback));
     }
 
+    queueIdleCallback(G_SOURCE_FUNC(publishStatsCallback));
     StreamerTaskBase::updateHook();
 }
 void StreamerTask::errorHook()
@@ -716,5 +788,11 @@ int StreamerTask::resumeServerCallback(StreamerTask* task)
 int StreamerTask::pauseServerCallback(StreamerTask* task)
 {
     task->pauseServer();
+    return false;
+}
+
+int StreamerTask::publishStatsCallback(StreamerTask* task)
+{
+    task->publishStats();
     return false;
 }

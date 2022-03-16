@@ -3,6 +3,8 @@
 
 #include <string>
 #include <stdint.h>
+#include <base/Float.hpp>
+#include <base/Time.hpp>
 
 namespace video_streamer_webrtc {
     enum PREDEFINED_ENCODER {
@@ -34,6 +36,28 @@ namespace video_streamer_webrtc {
         std::string encoder_name;
         /** MTU of the network link */
         uint16_t mtu = 0;
+    };
+
+    struct InboundStreamStatistics {
+        uint64_t rx_bytes = 0;
+        uint64_t packets_discarded_error_correction = 0;
+        uint64_t packets_received = 0;
+        uint64_t packets_duplicated = 0;
+        uint64_t frames_decoded = 0;
+
+        base::Time last_packet_received_timestamp;
+
+        uint64_t picture_loss_indicators_sent = 0;
+        uint64_t slice_loss_indicators_sent = 0;
+        uint64_t full_infra_requests_sent = 0;
+        uint64_t nack_sent = 0;
+    };
+
+    /** All information related to our client */
+    struct ClientStatistics {
+        base::Time time;
+
+        std::vector<InboundStreamStatistics> inbound_stream_statistics;
     };
 }
 

@@ -54,6 +54,10 @@ task_context "StreamerTask" do
     # The images to stream
     input_port "images", ro_ptr("/base/samples/frame/Frame")
 
+    # Statistics about the streams as received by our clients
+    output_port "client_statistics",
+                "/std/vector<video_streamer_webrtc/ClientStatistics>"
+
     port_driven
 
     exception_states "GSTREAMER_ERROR"
