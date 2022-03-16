@@ -2,6 +2,7 @@
   <head>
     <script type="text/javascript" src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
     <script type="text/javascript">
+      var sendHeartbeat = true;
       var html5VideoElement;
       var websocketConnection;
       var webrtcPeerConnection;
@@ -39,7 +40,7 @@
             if (websocketConnection.readyState == 3) {
                 clearInterval(intervalToken);
             }
-            else {
+            else if (sendHeartbeat) {
                 let array = []
                 stats.forEach((s) => array.push(s))
                 websocketConnection.send(JSON.stringify({ "type": "stats", "data": array }));

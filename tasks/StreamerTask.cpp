@@ -23,6 +23,7 @@
 #define G_SOURCE_FUNC(f) ((GSourceFunc) (void (*)(void)) (f))
 #endif
 
+using namespace base;
 using namespace std;
 using namespace video_streamer_webrtc;
 
@@ -59,7 +60,9 @@ struct video_streamer_webrtc::Receiver
 
     ClientStatistics stats;
 
-    Receiver() {}
+    Receiver() {
+        stats.time = Time::now();
+    }
     Receiver(Receiver const&) = delete;
 
     ~Receiver()
@@ -465,11 +468,13 @@ static Encoding encoderInfo(PREDEFINED_ENCODER encoder) {
 StreamerTask::StreamerTask(std::string const& name)
     : StreamerTaskBase(name)
 {
+    _dead_receiver_timeout.set(base::Time::fromSeconds(5));
 }
 
 StreamerTask::StreamerTask(std::string const& name, RTT::ExecutionEngine* engine)
     : StreamerTaskBase(name, engine)
 {
+    _dead_receiver_timeout.set(base::Time::fromSeconds(5));
 }
 
 StreamerTask::~StreamerTask()
@@ -546,6 +551,21 @@ Encoding StreamerTask::getEncoding() const
     return encoding;
 }
 
+void StreamerTask::reapDeadReceivers()
+{
+    auto deadline = Time::now() - _dead_receiver_timeout.get();
+    for (ReceiverMap::iterator it = receivers.begin(); it != receivers.end();) {
+        if (it->second->stats.time < deadline) {
+            auto receiver = it->second;
+            it = receivers.erase(it);
+            delete receiver;
+        }
+        else {
+            ++it;
+        }
+    }
+}
+
 void StreamerTask::publishStats()
 {
     std::vector<ClientStatistics> stats;
@@ -555,7 +575,6 @@ void StreamerTask::publishStats()
 
     _client_statistics.write(stats);
 }
-
 
 bool StreamerTask::serverIsPaused() const
 {
@@ -605,6 +624,7 @@ void StreamerTask::updateHook()
     }
 
     queueIdleCallback(G_SOURCE_FUNC(publishStatsCallback));
+    queueIdleCallback(G_SOURCE_FUNC(reapDeadReceiversCallback));
     StreamerTaskBase::updateHook();
 }
 void StreamerTask::errorHook()
@@ -788,6 +808,12 @@ int StreamerTask::resumeServerCallback(StreamerTask* task)
 int StreamerTask::pauseServerCallback(StreamerTask* task)
 {
     task->pauseServer();
+    return false;
+}
+
+int StreamerTask::reapDeadReceiversCallback(StreamerTask* task)
+{
+    task->reapDeadReceivers();
     return false;
 }
 

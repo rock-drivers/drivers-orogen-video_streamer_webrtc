@@ -51,6 +51,10 @@ task_context "StreamerTask" do
     # STUN server (e.g. stun://10.128.0.1:3478)
     property "stun_server", "string"
 
+    # How long will we keep a stream without receiving a heartbeat from the client
+    # on the signalling websocket
+    property "dead_receiver_timeout", "/base/Time"
+
     # The images to stream
     input_port "images", ro_ptr("/base/samples/frame/Frame")
 
