@@ -130,12 +130,13 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, StreamerTask& ta
         <<    ",payload=" << RTP_PAYLOAD_TYPE
         << "! webrtcbin.";
 
-    std::cout << "Using pipeline: " << pipelineDefinition.str() << std::endl;
+    LOG_INFO_S << "using pipeline: " << pipelineDefinition.str() << std::endl;
 
     GError* error = nullptr;
     receiver->pipeline = gst_parse_launch(pipelineDefinition.str().c_str(), &error);
     if (error) {
-        g_warning ("Could not create WebRTC pipeline: %s\n", error->message);
+        LOG_ERROR_S << "could not create WebRTC pipeline: "
+                    << error->message << std::endl;
         g_error_free (error);
         return nullptr;
     }
@@ -333,13 +334,13 @@ void handleSDPMessage(Receiver* receiver, Json::Value data) {
 
 void handleICEMessage(Receiver* receiver, Json::Value data) {
     if (data["sdpMLineIndex"].isNull()) {
-        g_error ("Received ICE message without mline index\n");
+        LOG_ERROR_S << "received ICE message without mline index" << std::endl;
         return;
     }
     guint mline_index = data["sdpMLineIndex"].asLargestUInt();
 
     if (data["candidate"].isNull()) {
-        g_error ("Received ICE message without ICE candidate string\n");
+        LOG_ERROR_S << "received ICE message without ICE candidate string" << std::endl;
         return;
     }
     string candidate = data["candidate"].asString();
