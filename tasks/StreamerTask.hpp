@@ -147,7 +147,8 @@ namespace video_streamer_webrtc{
         GMainContext *maincontext = nullptr;
         GMainLoop *mainloop = nullptr;
 
-        std::map<SoupWebsocketConnection*, Receiver*> receivers;
+        typedef std::map<SoupWebsocketConnection*, Receiver*> ReceiverMap;
+        ReceiverMap receivers;
         void startReceiver(Receiver& receiver);
         void configureFrameParameters(base::samples::frame::Frame const& frame);
         void clearAllReceivers();
@@ -158,13 +159,17 @@ namespace video_streamer_webrtc{
 
         void resumeServer();
         void pauseServer();
+        void publishStats();
         void pushPendingFrames();
         void startReceivers();
+        void reapDeadReceivers();
 
         static int pauseServerCallback(StreamerTask* task);
         static int resumeServerCallback(StreamerTask* task);
         static int pushPendingFramesCallback(StreamerTask* task);
         static int startReceiversCallback(StreamerTask* task);
+        static int publishStatsCallback(StreamerTask* task);
+        static int reapDeadReceiversCallback(StreamerTask* task);
 
         void queueIdleCallback(GSourceFunc callback);
     };

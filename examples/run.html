@@ -2,6 +2,7 @@
   <head>
     <script type="text/javascript" src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
     <script type="text/javascript">
+      var sendHeartbeat = true;
       var html5VideoElement;
       var websocketConnection;
       var webrtcPeerConnection;
@@ -32,6 +33,20 @@
 
       function onAddRemoteStream(event) {
         html5VideoElement.srcObject = event.streams[0];
+
+        let intervalToken = setInterval(
+          async () => {
+            let stats = await webrtcPeerConnection.getStats();
+            if (websocketConnection.readyState == 3) {
+                clearInterval(intervalToken);
+            }
+            else if (sendHeartbeat) {
+                let array = []
+                stats.forEach((s) => array.push(s))
+                websocketConnection.send(JSON.stringify({ "type": "stats", "data": array }));
+            }
+          }, 1000
+        )
       }
 
 

@@ -13,4 +13,5 @@
   <depend package="gstreamer-webrtc" />
   <depend package="gstreamer-vaapi" />
   <depend package="gstreamer-plugins-bad" />
+  <depend package="jsoncpp"/>
 </package>
