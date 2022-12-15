@@ -43,25 +43,31 @@ namespace video_streamer_webrtc {
      * This is sent by our client(s) and logged here
      */
     struct InboundStreamStatistics {
-        /** Bytes received so far */
         uint64_t rx_bytes = 0;
-        /** How many packets have been received */
         uint64_t packets_received = 0;
-        /** How many duplicate packets have been received */
         uint64_t packets_lost = 0;
-        /** How many frames have been decoded */
         uint64_t frames_decoded = 0;
-
-        /** Timestamp of the last packet received */
         base::Time last_packet_received_timestamp;
 
         /** How many indicators for "picture loss" were sent by the client back
-         * to us */
+         * to us.
+         *
+         * Picture loss is a message sent by the receiver to the emitter to
+         * indicate a frame was lost.
+         */
         uint64_t picture_loss_indicators_sent = 0;
         /** How many I frame request were sent by the client back to us because
-         * of frame loss */
+         * of frame loss
+         *
+         * "I Frames" are full frames in the video compression stream. These are
+         * the number of times the receiver requested a full I frame to recover
+         * from lost data.
+         */
         uint64_t full_infra_requests_sent = 0;
-        /** How many NACKs have been sent by the client back to us */
+        /** How many NACKs have been sent by the client back to us
+         *
+         * NACKs are sent on corrupted data
+         */
         uint64_t nack_sent = 0;
     };
 
