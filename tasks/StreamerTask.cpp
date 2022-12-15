@@ -398,18 +398,22 @@ void jsonRead(T& field, Json::Value& json, string const& fieldName) {
     field = jsonConvert<T>(json[fieldName]);
 }
 
-InboundStreamStatistics parseInboundStreamStatistics(Json::Value data) {
+InboundStreamStatistics parseInboundStreamStatistics(Json::Value data)
+{
     InboundStreamStatistics ret;
     jsonRead(ret.rx_bytes, data, "bytesReceived");
-    jsonRead(ret.packets_discarded_error_correction, data, "fecPacketsDiscarded");
-    jsonRead(ret.packets_received, data, "fecPacketsReceived");
-    jsonRead(ret.packets_duplicated, data, "packetsDuplicated");
+    jsonRead(ret.packets_received, data, "packetsReceived");
+    jsonRead(ret.packets_lost, data, "packetsLost");
     jsonRead(ret.frames_decoded, data, "framesDecoded");
 
     double last_packet_received_timestamp;
     jsonRead(last_packet_received_timestamp, data, "lastPacketReceivedTimestamp");
     ret.last_packet_received_timestamp =
         base::Time::fromSeconds(last_packet_received_timestamp / 1000);
+
+    jsonRead(ret.picture_loss_indicators_sent, data, "pliCount");
+    jsonRead(ret.full_infra_requests_sent, data, "firCount");
+    jsonRead(ret.nack_sent, data, "nackCount");
 
     return ret;
 }
