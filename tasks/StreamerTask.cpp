@@ -158,8 +158,6 @@ Receiver* create_receiver(SoupWebsocketConnection * connection, StreamerTask& ta
     if (!stun_server.empty()) {
         g_object_set(receiver->webrtcbin, "stun-server", stun_server.c_str(), NULL);
     }
-    gst_object_ref(receiver->webrtcbin);
-    gst_object_ref(receiver->appsrc);
 
     g_signal_connect(receiver->webrtcbin, "on-negotiation-needed",
         G_CALLBACK (on_negotiation_needed_cb), (gpointer) receiver.get());
