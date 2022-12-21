@@ -788,6 +788,8 @@ void StreamerTask::pushFrame(base::samples::frame::Frame const& frame)
         }
     }
     gst_buffer_unref(buffer);
+
+    nextFrameTime = nextFrameTime + frameDuration;
 }
 
 
