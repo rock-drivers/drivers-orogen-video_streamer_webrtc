@@ -285,17 +285,26 @@ soup_websocket_message_cb (G_GNUC_UNUSED SoupWebsocketConnection * connection,
     }
     Json::Value data = json["data"];
 
-    if (type == "sdp") {
-        handleSDPMessage(receiver, data);
-    } else if (type == "ice") {
-        handleICEMessage(receiver, data);
-    } else if (type == "stats") {
-        handleStatsMessage(receiver, data);
-    } else {
+    try {
+        if (type == "sdp") {
+            handleSDPMessage(receiver, data);
+        }
+        else if (type == "ice") {
+            handleICEMessage(receiver, data);
+        }
+        else if (type == "stats") {
+            handleStatsMessage(receiver, data);
+        }
+        else {
+            Json::FastWriter writer;
+            LOG_ERROR_S << "Unknown JSON message received on signalling channel:\n"
+                        << writer.write(data) << std::endl;
+        }
+    }
+    catch (const Json::LogicError& e) {
         Json::FastWriter writer;
-        LOG_ERROR_S
-            << "Unknown JSON message received on signalling channel:\n"
-            << writer.write(data) << std::endl;
+        LOG_ERROR_S << "Got the following error when handling json data:\nError:"
+                    << e.what() << "\nData: " << writer.write(data) << std::endl;
     }
 }
 
