@@ -129,6 +129,7 @@ namespace video_streamer_webrtc {
         bool serverIsPaused() const;
 
         std::string getSTUNServer() const;
+        Transport getTransport() const;
         Encoding getEncoding() const;
 
     private:

@@ -45,6 +45,9 @@ task_context "StreamerTask" do
     # The port on which the embedded server is listening
     property "port", "int", 57_778
 
+    # Transport configuration
+    property "transport", "video_streamer_webrtc/Transport"
+
     # Encoding configuration (defaults to VP8)
     property "encoding", "video_streamer_webrtc/Encoding"
 

@@ -8,6 +8,7 @@
 #include <glib.h>
 #include <gst/app/app.h>
 #include <gst/gst.h>
+#include <gst/rtp/rtp.h>
 #include <gst/sdp/sdp.h>
 #include <gst/video/video-info.h>
 #include <locale.h>
@@ -36,6 +37,9 @@ GstPadProbeReturn payloader_caps_event_probe_cb(GstPad* pad,
     gpointer user_data);
 
 void on_offer_created_cb(GstPromise* promise, gpointer user_data);
+void on_new_transceiver_cb(GstElement* webrtcbin,
+    GstWebRTCRTPTransceiver* candidate,
+    gpointer receiver);
 void on_negotiation_needed_cb(GstElement* webrtcbin, gpointer user_data);
 void on_ice_candidate_cb(GstElement* webrtcbin,
     guint mline_index,
@@ -58,6 +62,7 @@ void soup_http_handler(SoupServer* soup_server,
 struct video_streamer_webrtc::Receiver {
     StreamerTask* task;
 
+    Transport transport;
 
     SoupWebsocketConnection* connection = nullptr;
 
@@ -105,6 +110,37 @@ static void error_cb(GstBus* bus, GstMessage* msg, StreamerTask* task)
     task->emitGstreamerError();
 }
 
+static void setup_transceiver(Transport const& config,
+    GstWebRTCRTPTransceiver* transceiver)
+{
+    if (config.forward_error_correction == 0) {
+        g_object_set(transceiver, "fec-type", GST_WEBRTC_FEC_TYPE_NONE, NULL);
+    }
+    else {
+        g_object_set(transceiver,
+            "fec-type",
+            GST_WEBRTC_FEC_TYPE_ULP_RED,
+            "fec-percentage",
+            static_cast<int>(config.forward_error_correction * 100),
+            NULL);
+    }
+    g_object_set(transceiver, "do-nack", config.allow_retransmissions, NULL);
+}
+
+static void setup_all_transceivers(Receiver& receiver)
+{
+    GArray* transceivers;
+    g_signal_emit_by_name(receiver.webrtcbin, "get-transceivers", &transceivers);
+    for (guint i = 0; i < transceivers->len; ++i) {
+        GstWebRTCRTPTransceiver* transceiver =
+            g_array_index(transceivers, GstWebRTCRTPTransceiver*, i);
+
+        setup_transceiver(receiver.transport, transceiver);
+    }
+
+    g_array_unref(transceivers);
+}
+
 static GstVideoFormat frameModeToGSTFormat(base::samples::frame::frame_mode_t format)
 {
     switch (format) {
@@ -134,6 +170,7 @@ Receiver* create_receiver(SoupWebsocketConnection* connection, StreamerTask& tas
         G_CALLBACK(soup_websocket_message_cb),
         (gpointer)receiver.get());
 
+    receiver->transport = task.getTransport();
     auto encoding = task.getEncoding();
     std::ostringstream pipelineDefinition;
     pipelineDefinition << "webrtcbin latency=5000 name=webrtcbin appsrc "
@@ -172,7 +209,12 @@ Receiver* create_receiver(SoupWebsocketConnection* connection, StreamerTask& tas
         g_object_set(receiver->webrtcbin, "stun-server", stun_server.c_str(), NULL);
     }
 
+    setup_all_transceivers(*receiver);
 
+    g_signal_connect(receiver->webrtcbin,
+        "on-new-transceiver",
+        G_CALLBACK(on_new_transceiver_cb),
+        (gpointer)receiver.get());
     g_signal_connect(receiver->webrtcbin,
         "on-negotiation-needed",
         G_CALLBACK(on_negotiation_needed_cb),
@@ -226,6 +268,14 @@ void on_offer_created_cb(GstPromise* promise, gpointer user_data)
     gst_webrtc_session_description_free(offer);
 }
 
+void on_new_transceiver_cb(GstElement* webrtcbin,
+    GstWebRTCRTPTransceiver* transceiver,
+    gpointer user_data)
+{
+    Receiver* receiver = (Receiver*)user_data;
+    setup_transceiver(receiver->transport, transceiver);
+}
+
 void on_negotiation_needed_cb(GstElement* webrtcbin, gpointer user_data)
 {
     GstPromise* promise;
@@ -237,6 +287,7 @@ void on_negotiation_needed_cb(GstElement* webrtcbin, gpointer user_data)
         gst_promise_new_with_change_func(on_offer_created_cb, (gpointer)receiver, NULL);
     g_signal_emit_by_name(G_OBJECT(webrtcbin), "create-offer", NULL, promise);
 
+    setup_all_transceivers(*receiver);
 }
 
 void on_ice_candidate_cb(G_GNUC_UNUSED GstElement* webrtcbin,
@@ -599,6 +650,11 @@ string StreamerTask::getSTUNServer() const
 Encoding StreamerTask::getEncoding() const
 {
     return encoding;
+}
+
+Transport StreamerTask::getTransport() const
+{
+    return _transport.get();
 }
 
 void StreamerTask::reapDeadReceivers()

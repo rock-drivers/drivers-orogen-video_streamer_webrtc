@@ -16,6 +16,14 @@ namespace video_streamer_webrtc {
     };
 
     /** Definition of the underlying encoder to be used in the webrtc connections */
+    struct Transport {
+        /** Forward error correction percentage (between 0 and 1). Set to 0 for none. */
+        float forward_error_correction = 0;
+        /** Whether to allow retransmissions */
+        bool allow_retransmissions = false;
+    };
+
+    /** Definition of the underlying encoder to be used in the webrtc connections */
     struct Encoding {
         /** A predefined encoder
          *
@@ -38,7 +46,10 @@ namespace video_streamer_webrtc {
          * If 'encoder' is not CUSTOM_ENCODER, overrides the value set via 'encoder'
          */
         std::string encoder_name;
-        /** MTU of the network link */
+        /** MTU of the network link
+         *
+         * Deprecated, leave to zero and set the MTU in the payloader elements
+         */
         uint16_t mtu = 0;
     };
 
