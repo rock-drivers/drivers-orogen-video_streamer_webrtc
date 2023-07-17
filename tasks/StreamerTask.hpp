@@ -4,9 +4,9 @@
 #define VIDEO_STREAMER_WEBRTC_STREAMERTASK_TASK_HPP
 
 #include "video_streamer_webrtc/StreamerTaskBase.hpp"
-#include <libsoup/soup-types.h>
 #include <base/samples/Frame.hpp>
 #include <gst/gstelement.h>
+#include <libsoup/soup-types.h>
 #include <thread>
 
 struct _GMainLoop;
@@ -14,13 +14,16 @@ typedef struct _GMainLoop GMainLoop;
 struct _GHashTable;
 typedef struct _GHashTable GHashTable;
 
-namespace video_streamer_webrtc{
+namespace video_streamer_webrtc {
     struct Receiver;
 
     /*! \class StreamerTask
-     * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
-     * Essential interfaces are operations, data flow ports and properties. These interfaces have been defined using the oroGen specification.
-     * In order to modify the interfaces you should (re)use oroGen and rely on the associated workflow.
+     * \brief The task context provides and requires services. It uses an ExecutionEngine
+     to perform its functions.
+     * Essential interfaces are operations, data flow ports and properties. These
+     interfaces have been defined using the oroGen specification.
+     * In order to modify the interfaces you should (re)use oroGen and rely on the
+     associated workflow.
      *
      * \details
      * The name of a TaskContext is primarily defined via:
@@ -29,31 +32,33 @@ namespace video_streamer_webrtc{
          task('custom_task_name','video_streamer_webrtc::StreamerTask')
      end
      \endverbatim
-     *  It can be dynamically adapted when the deployment is called with a prefix argument.
+     *  It can be dynamically adapted when the deployment is called with a prefix
+     argument.
      */
-    class StreamerTask : public StreamerTaskBase
-    {
-	friend class StreamerTaskBase;
+    class StreamerTask : public StreamerTaskBase {
+        friend class StreamerTaskBase;
+
     protected:
-
     public:
-
         /** TaskContext constructor for StreamerTask
-         * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
-         * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
+         * \param name Name of the task. This name needs to be unique to make it
+         * identifiable via nameservices. \param initial_state The initial TaskState of
+         * the TaskContext. Default is Stopped state.
          */
         StreamerTask(std::string const& name = "video_streamer_webrtc::StreamerTask");
 
         /** TaskContext constructor for StreamerTask
-         * \param name Name of the task. This name needs to be unique to make it identifiable for nameservices.
-         * \param engine The RTT Execution engine to be used for this task, which serialises the execution of all commands, programs, state machines and incoming events for a task.
+         * \param name Name of the task. This name needs to be unique to make it
+         * identifiable for nameservices. \param engine The RTT Execution engine to be
+         * used for this task, which serialises the execution of all commands, programs,
+         * state machines and incoming events for a task.
          *
          */
         StreamerTask(std::string const& name, RTT::ExecutionEngine* engine);
 
         /** Default deconstructor of StreamerTask
          */
-	~StreamerTask();
+        ~StreamerTask();
 
         /** This hook is called by Orocos when the state machine transitions
          * from PreOperational to Stopped. If it returns false, then the
@@ -124,6 +129,7 @@ namespace video_streamer_webrtc{
         bool serverIsPaused() const;
 
         std::string getSTUNServer() const;
+        Transport getTransport() const;
         Encoding getEncoding() const;
 
     private:
@@ -143,9 +149,9 @@ namespace video_streamer_webrtc{
         base::Time nextFrameTime;
 
         int argc = 0;
-        const char* argv[1] = { "webrtc-streamer "};
-        GMainContext *maincontext = nullptr;
-        GMainLoop *mainloop = nullptr;
+        const char* argv[1] = {"webrtc-streamer "};
+        GMainContext* maincontext = nullptr;
+        GMainLoop* mainloop = nullptr;
 
         typedef std::map<SoupWebsocketConnection*, Receiver*> ReceiverMap;
         ReceiverMap receivers;
