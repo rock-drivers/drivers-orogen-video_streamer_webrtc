@@ -21,6 +21,15 @@ namespace video_streamer_webrtc {
         float forward_error_correction = 0;
         /** Whether to allow retransmissions */
         bool allow_retransmissions = false;
+        /** Whether TCP may be used to connect the peers */
+        bool use_tcp = false;
+        /** Whether UDP may be used to connect the peers */
+        bool use_udp = true;
+        /** The local address to advertise
+         *
+         * Setting this cancels the ICE process
+         */
+        std::string local_ip_address;
     };
 
     /** Definition of the underlying encoder to be used in the webrtc connections */

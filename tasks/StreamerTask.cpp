@@ -170,7 +170,8 @@ Receiver* create_receiver(SoupWebsocketConnection* connection, StreamerTask& tas
         G_CALLBACK(soup_websocket_message_cb),
         (gpointer)receiver.get());
 
-    receiver->transport = task.getTransport();
+    auto transport = task.getTransport();
+    receiver->transport = transport;
     auto encoding = task.getEncoding();
     std::ostringstream pipelineDefinition;
     pipelineDefinition << "webrtcbin latency=5000 name=webrtcbin appsrc "
@@ -203,6 +204,17 @@ Receiver* create_receiver(SoupWebsocketConnection* connection, StreamerTask& tas
     receiver->appsrc =
         (GstAppSrc*)gst_bin_get_by_name(GST_BIN(receiver->pipeline), "src");
     g_assert(receiver->appsrc != NULL);
+
+    GstWebRTCICE* ice_agent;
+    g_object_get(receiver->webrtcbin, "ice-agent", &ice_agent, NULL);
+    g_object_set(ice_agent, "ice-tcp", transport.use_tcp, NULL);
+    g_object_set(ice_agent, "ice-udp", transport.use_udp, NULL);
+    if (!transport.local_ip_address.empty()) {
+        g_signal_emit_by_name(ice_agent,
+            "add-local-ip-address",
+            transport.local_ip_address.c_str(),
+            NULL);
+    }
 
     auto stun_server = task.getSTUNServer();
     if (!stun_server.empty()) {
