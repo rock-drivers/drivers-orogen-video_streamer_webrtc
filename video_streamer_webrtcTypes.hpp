@@ -1,14 +1,18 @@
 #ifndef video_streamer_webrtc_TYPES_HPP
 #define video_streamer_webrtc_TYPES_HPP
 
-#include <string>
-#include <stdint.h>
 #include <base/Float.hpp>
 #include <base/Time.hpp>
+#include <stdint.h>
+#include <string>
 
 namespace video_streamer_webrtc {
     enum PREDEFINED_ENCODER {
-        VP8, VAAPI_VP8, H264, VAAPI_H264, CUSTOM_ENCODING
+        VP8,
+        VAAPI_VP8,
+        H264,
+        VAAPI_H264,
+        CUSTOM_ENCODING
     };
 
     /** Definition of the underlying encoder to be used in the webrtc connections */
@@ -80,4 +84,3 @@ namespace video_streamer_webrtc {
 }
 
 #endif
-
