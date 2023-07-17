@@ -205,15 +205,17 @@ Receiver* create_receiver(SoupWebsocketConnection* connection, StreamerTask& tas
         (GstAppSrc*)gst_bin_get_by_name(GST_BIN(receiver->pipeline), "src");
     g_assert(receiver->appsrc != NULL);
 
-    GstWebRTCICE* ice_agent;
+    gpointer* ice_agent = NULL;
     g_object_get(receiver->webrtcbin, "ice-agent", &ice_agent, NULL);
-    g_object_set(ice_agent, "ice-tcp", transport.use_tcp, NULL);
-    g_object_set(ice_agent, "ice-udp", transport.use_udp, NULL);
-    if (!transport.local_ip_address.empty()) {
-        g_signal_emit_by_name(ice_agent,
-            "add-local-ip-address",
-            transport.local_ip_address.c_str(),
-            NULL);
+    if (ice_agent) {
+        g_object_set(ice_agent, "ice-tcp", transport.use_tcp, NULL);
+        g_object_set(ice_agent, "ice-udp", transport.use_udp, NULL);
+        if (!transport.local_ip_address.empty()) {
+            g_signal_emit_by_name(ice_agent,
+                "add-local-ip-address",
+                transport.local_ip_address.c_str(),
+                NULL);
+        }
     }
 
     auto stun_server = task.getSTUNServer();
