@@ -10,6 +10,7 @@
   <depend package="base/logging" />
   <depend package="soup" />
   <depend package="json-glib" />
+  <depend package="frei0r-plugins" />
   <depend package="gstreamer-webrtc" />
   <depend package="gstreamer-vaapi" />
   <depend package="gstreamer-plugins-bad" />
