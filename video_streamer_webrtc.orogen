@@ -6,7 +6,12 @@ using_library "base-logging", typekit: false
 using_library "gstreamer-webrtc-1.0", typekit: false
 using_library "gstreamer-video-1.0", typekit: false
 using_library "gstreamer-app-1.0", typekit: false
-using_library "libsoup-2.4", typekit: false
+begin
+    using_library "libsoup-3.0", typekit: false
+rescue OroGen::ConfigError
+    using_library "libsoup-2.4", typekit: false
+end
+
 using_library "jsoncpp", typekit: false
 import_types_from "base"
 import_types_from "video_streamer_webrtcTypes.hpp"
